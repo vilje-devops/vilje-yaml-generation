@@ -10,36 +10,103 @@ Internal Claude Code plugins for Vilje Tech. Currently one plugin:
 
 ## Install
 
-Run these once per developer, from anywhere:
+Run these once per laptop, from any folder — they change your global Claude config, so the
+directory does not matter:
 
 ```bash
 claude plugin marketplace add https://github.com/vilje-devops/vilje-yaml-generation
 claude plugin install azure-deploy-kit@vilje-devops
 ```
 
-Then open any application repository and run:
+Restart Claude Code, then open **an application repository** and run:
 
 ```
 /deploy-check
 ```
 
-> The marketplace name `vilje-devops` is defined in `.claude-plugin/marketplace.json`;
-> it is what developers type after `@` when installing.
+`/deploy-check` reads whatever repo it is sitting in, so run it in the app you want
+workflows for — not in this one.
 
-### Update
+> The marketplace name `vilje-devops` comes from `.claude-plugin/marketplace.json`. It is
+> what you type after `@` when installing.
 
-```bash
-claude plugin update azure-deploy-kit
-```
-
-Because the marketplace points at a Git repository, every developer gets the new version
-on their next update. Bump `version` in `plugins/azure-deploy-kit/.claude-plugin/plugin.json`
-when you ship a change.
-
-### Verify the install
+### Check which version you have
 
 ```bash
 claude plugin list
+```
+
+```
+❯ azure-deploy-kit@vilje-devops
+  Version: 0.1.2
+  Scope: user
+  Status: ✔ enabled
+```
+
+For more detail — including whether the skill loaded correctly — use:
+
+```bash
+claude plugin details azure-deploy-kit
+```
+
+A healthy install reports exactly one skill:
+
+```
+Component inventory
+  Skills (1)  deploy-check
+```
+
+If it says `Skills (2)  deploy-check, deploy-check`, your install is stale. Follow
+**Update** below.
+
+### Update to a new release
+
+```bash
+claude plugin marketplace update vilje-devops
+claude plugin update azure-deploy-kit
+```
+
+Then restart Claude Code and confirm the version with `claude plugin list`.
+
+**If the version did not change, or the new features are missing**, reinstall instead.
+This is the reliable path:
+
+```bash
+claude plugin marketplace update vilje-devops
+claude plugin uninstall azure-deploy-kit
+claude plugin install azure-deploy-kit@vilje-devops
+```
+
+Restart Claude Code afterwards.
+
+<details>
+<summary>Why a reinstall is sometimes needed</summary>
+
+Claude Code caches each plugin in a folder named after its **version string**:
+
+```
+~/.claude/plugins/cache/vilje-devops/azure-deploy-kit/0.1.1/
+```
+
+If a version number is ever reused for different code, the cached folder is served instead
+of the new code — and `claude plugin update` reports success while nothing actually
+changes. That happened once during this plugin's development: an update printed
+`updated from 0.1.1 to 0.1.0` while still serving the older templates.
+
+`0.1.2` onwards has a clean cache, so `claude plugin update` works normally. Reinstalling
+is only needed when coming from `0.1.0` or `0.1.1`.
+
+**Maintainers: never reuse a version number.** Always increment `version` in
+`plugins/azure-deploy-kit/.claude-plugin/plugin.json` when shipping a change, even a tiny
+one. That is what makes "which version am I running?" answerable.
+
+</details>
+
+### Uninstall
+
+```bash
+claude plugin uninstall azure-deploy-kit
+claude plugin marketplace remove vilje-devops
 ```
 
 ---

@@ -1,6 +1,6 @@
 {
   "name": "azure-deploy-kit",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Analyzes an application codebase for Azure deployment readiness and generates application-specific GitHub Actions CI/CD YAML. Generates and validates files only - it never runs a deployment.",
   "author": {
     "name": "Prem Kumar Ponnada",
