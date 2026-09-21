@@ -1,7 +1,19 @@
 # Authenticating the workflow to Azure
 
-Three supported methods. Default to OIDC. Never generate the credential itself, never ask
-for its value, and never write it into a file.
+Three supported methods. Never generate the credential itself, never ask for its value,
+and never write it into a file.
+
+**Which to recommend** is a team decision, held in one place: the *House auth default*
+table in `questions.md`. Today that is **publish profile for App Service** (matching
+Vilje's existing repos) and **OIDC for Container Apps** (publish profile cannot work
+there). This file explains how each method works and what it costs; it does not decide
+which one a new repo gets.
+
+Security note, so the trade-off stays visible: OIDC is the strongest of the three. It
+stores no credential at all, so there is nothing to leak and nothing to rotate. Publish
+profile is chosen here for consistency and because it needs no Entra app registration -
+not because it is safer. A team that can create app registrations should consider
+standardising on OIDC instead.
 
 ## 1. OIDC federated credentials — recommended default
 

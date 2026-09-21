@@ -51,8 +51,8 @@ Group into `AskUserQuestion` calls of at most 4. Skip any already answered by
      Only ask if the user wants to change it, or if it is incompatible with the chosen
      target (publish profile + Container Apps / Static Web Apps must change, AZ-07).
    - `existing_auth_mixed` true -> ask which to standardise on.
-   - Nothing detected -> OIDC federated credentials (recommended, no stored secret) /
-     service principal secret / publish profile (App Service only). See `auth.md`.
+   - Nothing detected -> ask, and put the **house default for that target** first. See
+     the table below. Always offer the alternatives; never remove a choice.
 6. **Are the Azure resources already provisioned?** Yes — then ask for the resource
    **names** so the workflow is concrete. No — then leave `{{TOKEN}}` placeholders and
    list creation as a manual prerequisite.
@@ -60,6 +60,33 @@ Group into `AskUserQuestion` calls of at most 4. Skip any already answered by
    Container Registry (ghcr.io).
 8. **Database migrations**, if migrations were detected: run in the workflow before
    deploy / run as a separate manual step / none needed.
+
+#### House auth default
+
+Order the options with this one first, marked `(Recommended)`. This is a team decision,
+not a security ranking — change the table and the whole team changes together.
+
+| Target | Recommend first | Also offer |
+|---|---|---|
+| **App Service** (code or container) | **Publish profile** | OIDC, service principal secret |
+| Container Apps | OIDC | service principal secret |
+| Static Web Apps | n/a — uses its own deployment token | — |
+
+Why publish profile is first for App Service: it is what Vilje's existing App Service
+repos already use, so a new repo matches the ones beside it, and it needs no Entra app
+registration — which not every developer can create.
+
+Say this in one line when you recommend it, so the choice is visible rather than silent:
+
+> Recommending **publish profile** — it is what your other App Service repos use. OIDC is
+> more secure (nothing stored in GitHub, nothing to rotate) if you can create an Entra app
+> registration; say so and I will use that instead.
+
+**Do not** make publish profile the default for Container Apps or Static Web Apps. It
+cannot work there at all (AZ-07).
+
+**To change the house default**, edit the table above. It is the single place that decides
+the recommendation, so the whole team moves at once.
 
 ### Group 3 — only when the repo is ambiguous
 

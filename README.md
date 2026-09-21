@@ -175,6 +175,14 @@ Static Web Apps uses its own deployment token rather than any of the three.
 Publish profile is an App Service feature: Container Apps and Static Web Apps have no
 publish profile, so that combination is rejected rather than generated (check `AZ-07`).
 
+**House default.** For a repo with no existing workflows, the skill recommends
+**publish profile for App Service** (what our other App Service repos use) and **OIDC for
+Container Apps**. All three are always offered. OIDC is the more secure choice - nothing
+stored in GitHub, nothing to rotate - and a team that can create Entra app registrations
+should consider standardising on it. To change the recommendation for everyone, edit the
+*House auth default* table in
+`plugins/azure-deploy-kit/skills/deploy-check/references/questions.md`.
+
 **Existing conventions are preserved.** If a repo already has workflows, the detector
 reads how they authenticate and keeps that method by default - including the existing
 secret names. Changing method is something the skill asks about, never does silently.

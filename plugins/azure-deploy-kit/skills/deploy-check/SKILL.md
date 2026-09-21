@@ -132,6 +132,11 @@ Use `AskUserQuestion`, grouped, at most 4 questions per call. Ask only what the 
 genuinely cannot tell you. Asking a developer something their own `package.json` already
 states destroys trust in the rest of the report.
 
+For the auth question specifically: when the repo has no existing method, order the options
+by the **House auth default** table in `questions.md` and put that one first, marked
+`(Recommended)`. Today that is publish profile for App Service, OIDC for Container Apps.
+Never silently drop the alternatives.
+
 Write the confirmed answers to `.deploy-check.yml` at the repo root so later runs do not
 re-interrogate. If that file already exists, read it first and ask only about the gaps.
 

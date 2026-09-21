@@ -403,6 +403,31 @@ def test_real_world_regressions():
                                        if r["status"] == "pass"})
 
 
+def test_house_auth_default():
+    """The recommended auth method is a team decision held in exactly one place."""
+    print("\n[10] house auth default")
+    q = open(os.path.join(SKILL, "references", "questions.md"), encoding="utf-8").read()
+    check("house default table exists", "#### House auth default" in q)
+    check("App Service recommends publish profile first",
+          "| **App Service** (code or container) | **Publish profile** |" in q)
+    check("Container Apps still recommends OIDC",
+          "| Container Apps | OIDC |" in q)
+    check("publish profile explicitly barred as a default for Container Apps",
+          "Do not** make publish profile the default for Container Apps" in q)
+    check("alternatives are still offered",
+          "Always offer the alternatives; never remove a choice." in q)
+    check("one documented place to change it",
+          "To change the house default" in q)
+
+    a = open(os.path.join(SKILL, "references", "auth.md"), encoding="utf-8").read()
+    check("auth.md defers to the house default", "House auth default" in a)
+    check("auth.md keeps the security trade-off visible",
+          "OIDC is the strongest" in a)
+
+    s = open(os.path.join(SKILL, "SKILL.md"), encoding="utf-8").read()
+    check("SKILL.md Phase 3 points at the house default", "House auth default" in s)
+
+
 def test_pinned_versions():
     """Bugs 1 and 6: version pins and the startup-command limitation."""
     print("\n[9] versions and auth documentation")
@@ -443,6 +468,7 @@ if __name__ == "__main__":
     test_report_validator()
     test_real_world_regressions()
     test_pinned_versions()
+    test_house_auth_default()
 
     failed = [r for r in results if not r[0]]
     print("\n" + "=" * 62)
