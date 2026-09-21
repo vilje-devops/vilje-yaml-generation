@@ -160,8 +160,18 @@ the report.
 | Azure Container Apps | Virtual Machines |
 | Azure Static Web Apps | Bicep / Terraform provisioning |
 
-Stacks: Node/TypeScript, Python, .NET. Anything else is analyzed, and the generated
-workflow is marked `Assumed` in the report.
+### Stacks: all of them
+
+| Stack | How |
+|---|---|
+| Node/TypeScript, Python, .NET | detected automatically — commands read from your manifest |
+| Java, Go, PHP, Ruby, Rust, Elixir, Dart | recognised, with conventional commands offered **for you to confirm** |
+| Anything else | the skill asks for the commands, then builds from your answers |
+
+**There is no unsupported stack.** What the skill cannot detect, it asks about — it never
+guesses a build command. If you do not know a command either, it leaves that step out
+rather than inventing one: a missing step is debuggable, a wrong one looks correct and
+fails in CI.
 
 ### Supported authentication methods
 

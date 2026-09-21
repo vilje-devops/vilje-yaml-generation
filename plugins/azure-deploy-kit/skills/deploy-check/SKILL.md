@@ -44,7 +44,12 @@ These are not preferences. Breaking one makes the output dangerous.
    no `git push`. Generating the file is where your job ends.
 7. **Label every finding** Verified / Assumed / Unknown. See `references/report-format.md`.
 8. **Ask before writing files.** Present the file plan, get approval, then write.
-9. **Preserve the existing auth method.** If the detector reports `existing_auth_method`,
+9. **Never assume a command.** If you cannot see the install, build, test or start
+   command in a file you read, **ask**. A wrong command that looks plausible costs more
+   than a question. This applies hardest to stacks with no dedicated detector, where the
+   detector returns `confirmed: false` and lists `needs_user_confirmation` - treat every
+   field in that list as Unknown until the user says otherwise.
+10. **Preserve the existing auth method.** If the detector reports `existing_auth_method`,
    that is the team's convention - default to it and say so. Switching a team to a
    different method is a decision they make, not you. Ask explicitly before changing it,
    and never change it silently.
@@ -106,6 +111,17 @@ Four fields change what you are allowed to conclude:
 Then read what the script cannot interpret: the entry point, the Dockerfile, and any
 existing workflow in `.github/workflows/`. **Do not read `.env` files for their values.**
 Read `.env.example` freely; from a real `.env`, take key names only.
+
+**Any stack, not just three.** The detector has dedicated support for Node, Python and
+.NET. For Java, Go, PHP, Ruby, Rust, Elixir and Dart it returns a best-effort shape with
+`confirmed: false` and a `needs_user_confirmation` list - those commands are conventions,
+not observations. For anything it does not recognise at all, `has_unconfirmed_stack` is
+true and there are no commands to work from.
+
+In both cases the answer is the same: **ask the user, then build from their answer.**
+Never fall back to a guess, and never tell the user their stack is unsupported - every
+stack is supported once they confirm the commands. See `references/questions.md`,
+*Unknown or unconfirmed stack*.
 
 If the detector found more than one deployable service, resolve the monorepo question
 before continuing — see `references/azure-targets.md`, section Monorepos.

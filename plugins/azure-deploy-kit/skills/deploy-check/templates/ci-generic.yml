@@ -1,0 +1,72 @@
+# Template: CI for any stack without a dedicated ci-*.yml (Java, Go, PHP, Ruby, Rust,
+# Elixir, Dart, or something else entirely).
+#
+# EVERY command here comes from the USER, not from a guess. The detector marks these
+# stacks `confirmed: false`; ask before filling. If the user does not know a command,
+# leave the step out rather than inventing one - a missing step is debuggable, a wrong
+# one is not.
+#
+# {{SETUP_ACTION}} examples (confirm the version input name too):
+#   actions/setup-java@v4        with: distribution + java-version
+#   actions/setup-go@v5          with: go-version
+#   shivammathur/setup-php@v2    with: php-version
+#   ruby/setup-ruby@v1           with: ruby-version + bundler-cache
+#   dtolnay/rust-toolchain@stable  (no `with:` needed)
+#   erlef/setup-beam@v1          with: otp-version + elixir-version
+name: CI
+
+on:
+  pull_request:
+    branches: ["{{DEFAULT_BRANCH}}"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: "ci-${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: "{{APP_PATH}}"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+# {{#if SETUP_ACTION}}
+      # Pin this action's major version in ../references/versions.md once confirmed.
+      - name: Set up {{LANGUAGE}}
+        uses: "{{SETUP_ACTION}}"
+        with:
+          "{{SETUP_VERSION_INPUT}}": "{{RUNTIME_VERSION}}"
+# {{/if}}
+
+# {{#if INSTALL}}
+      - name: Install dependencies
+        run: "{{INSTALL_COMMAND}}"
+# {{/if}}
+
+# {{#if TESTS}}
+      - name: Test
+        run: "{{TEST_COMMAND}}"
+# {{/if}}
+
+# {{#if BUILD}}
+      - name: Build
+        run: "{{BUILD_COMMAND}}"
+# {{/if}}
+
+# {{#if UPLOAD_ARTIFACT}}
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: app-build
+          path: "{{APP_PATH}}/{{BUILD_OUTPUT_PATH}}"
+          retention-days: 7
+          if-no-files-found: error
+# {{/if}}

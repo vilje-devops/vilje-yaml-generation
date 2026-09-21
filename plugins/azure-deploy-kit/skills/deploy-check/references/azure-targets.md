@@ -38,7 +38,8 @@ CI template by detected stack:
 | Node / TypeScript (npm, pnpm, yarn) | `ci-node.yml` |
 | Python (pip, poetry, uv) | `ci-python.yml` |
 | .NET | `ci-dotnet.yml` |
-| Anything else | Build from `ci-node.yml` as a shape reference, adapt the steps, and mark the result `Assumed` in the report |
+| Java, Go, PHP, Ruby, Rust, Elixir, Dart | `ci-generic.yml` — fill `{{SETUP_ACTION}}` and every command from the user's confirmed answers |
+| Anything else at all | `ci-generic.yml` too. Ask for the commands, then fill it. Never refuse a stack. |
 
 ### One workflow or two?
 
@@ -100,8 +101,19 @@ Values the generated config must agree with, and a frequent cause of a silent 50
 | Container Apps | `--target-port` must equal the container's listening port. |
 | Static Web Apps | No server port. |
 
-## Out of scope for v0.1
+## Stacks: all of them
 
-Say plainly that these are not supported yet rather than improvising a template:
-Azure Functions, AKS, Virtual Machines, Service Fabric, Bicep/Terraform provisioning.
+There is no unsupported stack. Node, Python and .NET have dedicated detection; everything
+else uses `ci-generic.yml` with commands confirmed by the user. The deploy templates are
+already stack-agnostic — App Service takes a folder, Container Apps takes an image — so
+the only stack-specific part is the setup and build steps, and those come from the user.
+
+If you cannot determine something, that is a question, not a refusal.
+
+## Targets still out of scope
+
+These need a tested template that does not exist yet, so say so plainly rather than
+improvising: **Azure Functions, AKS, Virtual Machines, Service Fabric, and
+Bicep/Terraform provisioning.** This is about the Azure side, not the language.
+
 Adding one means adding a tested template file plus a row in the tables above.

@@ -490,6 +490,74 @@ def test_no_config_file():
           "recovers the target, auth method" in s)
 
 
+def test_any_stack():
+    """Every stack is supported. Unknown ones become questions, never guesses."""
+    print("\n[13] any stack - detect or ask, never assume")
+
+    # A stack with no dedicated detector is still seen, and flagged as unconfirmed.
+    for fixture, language, version in (
+            ("stack-java-maven", "Java (Maven)", "21"),
+            ("stack-go", "Go", "1.23")):
+        _, stdout, _ = run([DETECT, "--root", os.path.join(FIXTURES, fixture)])
+        d = json.loads(stdout)
+        svc = (d.get("services") or [None])[0]
+        check(f"{fixture}: detected at all", svc is not None)
+        if not svc:
+            continue
+        check(f"{fixture}: language == {language}", svc["language"] == language,
+              f"got {svc['language']}")
+        check(f"{fixture}: runtime {version} read from the manifest",
+              svc["runtime_version"]["value"] == version, f"got {svc['runtime_version']}")
+        check(f"{fixture}: marked confirmed=False", svc.get("confirmed") is False)
+        check(f"{fixture}: names a setup action", bool(svc.get("setup_action")))
+        check(f"{fixture}: lists fields needing confirmation",
+              "build_command" in (svc.get("needs_user_confirmation") or []))
+        check(f"{fixture}: note tells the skill to ASK",
+              any("ASK the user to confirm" in n for n in d["notes"]))
+
+    # No manifest at all: no guessing, just questions.
+    _, stdout, _ = run([DETECT, "--root", os.path.join(FIXTURES, "stack-unrecognised")])
+    d = json.loads(stdout)
+    check("unrecognised: no services invented", d["service_count"] == 0)
+    check("unrecognised: flagged as needing confirmation", d["has_unconfirmed_stack"] is True)
+    check("unrecognised: note says do NOT guess",
+          any("Do NOT guess the stack" in n for n in d["notes"]))
+    check("unrecognised: note lists what to ask for",
+          any("install command" in n and "start" in n for n in d["notes"]))
+
+    # A known stack must NOT be dragged into the unconfirmed path.
+    _, stdout, _ = run([DETECT, "--root", os.path.join(FIXTURES, "oidc-app-service")])
+    d = json.loads(stdout)
+    check("known stack stays confirmed", d.get("has_unconfirmed_stack") is False,
+          f"got {d.get('has_unconfirmed_stack')}")
+
+    # The generic template exists and is genuinely generic.
+    gen = os.path.join(TEMPLATES, "ci-generic.yml")
+    check("ci-generic.yml exists", os.path.isfile(gen))
+    if os.path.isfile(gen):
+        text = open(gen, encoding="utf-8").read()
+        check("ci-generic.yml parameterises the setup action", "{{SETUP_ACTION}}" in text)
+        check("ci-generic.yml says commands come from the user",
+              "comes from the USER" in text)
+        check("ci-generic.yml prefers omission over invention",
+              "leave the step out rather than inventing one" in text)
+
+    # The instructions must forbid assuming, and forbid refusing a stack.
+    s = open(os.path.join(SKILL, "SKILL.md"), encoding="utf-8").read()
+    check("SKILL.md: 'Never assume a command' is a hard rule",
+          "Never assume a command" in s)
+    check("SKILL.md: never tell the user their stack is unsupported",
+          "never tell the user their stack is unsupported" in s)
+    q = open(os.path.join(SKILL, "references", "questions.md"), encoding="utf-8").read()
+    check("questions.md has the unknown-stack group",
+          "### Group 2b — unknown or unconfirmed stack" in q)
+    check("questions.md forbids inventing a command",
+          "leave that step out" in q)
+    a = open(os.path.join(SKILL, "references", "azure-targets.md"), encoding="utf-8").read()
+    check("azure-targets.md states there is no unsupported stack",
+          "There is no unsupported stack" in a)
+
+
 def test_pinned_versions():
     """Bugs 1 and 6: version pins and the startup-command limitation."""
     print("\n[9] versions and auth documentation")
@@ -533,6 +601,7 @@ if __name__ == "__main__":
     test_house_auth_default()
     test_no_double_trigger()
     test_no_config_file()
+    test_any_stack()
 
     failed = [r for r in results if not r[0]]
     print("\n" + "=" * 62)

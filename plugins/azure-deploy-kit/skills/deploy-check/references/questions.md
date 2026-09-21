@@ -88,6 +88,40 @@ cannot work there at all (AZ-07).
 **To change the house default**, edit the table above. It is the single place that decides
 the recommendation, so the whole team moves at once.
 
+### Group 2b — unknown or unconfirmed stack
+
+Ask these **only** when `has_unconfirmed_stack` is true, or a service has
+`confirmed: false`. Ask for the fields listed in its `needs_user_confirmation`, and skip
+any the repository already proves.
+
+Show what you found first, so the user is correcting rather than starting blank:
+
+> I found `pom.xml`, so this looks like Java with Maven, and `<java.version>21</java.version>`
+> suggests Java 21. I have not run anything, so I need you to confirm the commands.
+
+Then ask, in one grouped call:
+
+- **Install command** — e.g. `mvn -B dependency:go-offline`, `go mod download`,
+  `bundle install`. Offer the convention as the first option, clearly labelled as a guess.
+- **Build command** — or "no build step" if the runtime needs none (PHP, Ruby).
+- **Test command** — or "no tests yet". Never invent one.
+- **Start command** — how Azure should run it. For App Service this usually goes in the
+  portal's Startup Command, not the workflow.
+- **Build output folder** — what gets deployed: `target/`, `build/libs/`, `.`, …
+- **Runtime version** — only if the manifest did not state it.
+- **Setup action and its version input** — `actions/setup-java@v4` with `java-version`,
+  `actions/setup-go@v5` with `go-version`, and so on. `templates/ci-generic.yml` lists the
+  common ones. Ask if the stack is not there.
+
+Rules for this group:
+
+- **Never say "your stack is not supported".** It is supported the moment the user
+  confirms the commands. Say what you found, say what you need, and build it.
+- **If the user does not know a command, leave that step out** rather than inventing one.
+  A missing step is debuggable; a wrong one looks correct and fails in CI.
+- Record every answer in the report as `[Verified]` — the user told you — and note that
+  the commands came from them, not from the repository.
+
 ### Group 3 — only when the repo is ambiguous
 
 9. **Which services to deploy**, if a monorepo was detected.

@@ -38,12 +38,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Set up runtime
+# {{#if STACK_NODE}}
+      - name: Set up Node
         uses: actions/setup-node@v7
         with:
           node-version: "{{NODE_VERSION}}"
           cache: "{{PACKAGE_MANAGER}}"
           cache-dependency-path: "{{LOCKFILE_PATH}}"
+# {{/if}}
+
+# {{#if STACK_OTHER}}
+      # Any other stack. Both the action and its version input come from the user -
+      # the detector marks these `confirmed: false`. See ci-generic.yml for examples.
+      - name: Set up {{LANGUAGE}}
+        uses: "{{SETUP_ACTION}}"
+        with:
+          "{{SETUP_VERSION_INPUT}}": "{{RUNTIME_VERSION}}"
+# {{/if}}
 
       - name: Install dependencies
         run: "{{INSTALL_COMMAND}}"

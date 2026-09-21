@@ -365,7 +365,8 @@ def scan_sources(root):
 
 def find_services(root):
     """A directory holding a manifest is a candidate deployable service."""
-    markers = ("package.json", "requirements.txt", "pyproject.toml", "setup.py", "Pipfile")
+    markers = {"package.json", "requirements.txt", "pyproject.toml", "setup.py", "Pipfile"}
+    markers |= {row[0] for row in GENERIC_STACKS}
     dirs = set()
     for path in walk(root):
         base = os.path.basename(path)
@@ -374,9 +375,11 @@ def find_services(root):
 
     services = []
     for d in sorted(dirs):
-        for detector in (detect_node, detect_python, detect_dotnet):
+        for detector in (detect_node, detect_python, detect_dotnet, detect_generic):
             info = detector(root, d)
             if info:
+                info.setdefault("confirmed", True)
+                info.setdefault("needs_user_confirmation", [])
                 info["path"] = rel(root, d)
                 info["has_dockerfile"] = any(
                     os.path.exists(os.path.join(d, n))
@@ -385,6 +388,81 @@ def find_services(root):
                 services.append(info)
                 break
     return services
+
+
+# ------------------------------------------------------------- generic stacks
+
+# Stacks without a dedicated detector. The commands here are CONVENTIONS, not facts -
+# every one is emitted with confirmed=False so the skill asks the user before using it.
+# Adding a row makes a stack visible; it does not make it verified.
+GENERIC_STACKS = [
+    # manifest, language, setup action, install, build, test, output, version marker
+    ("pom.xml", "Java (Maven)", "actions/setup-java",
+     "mvn -B dependency:go-offline", "mvn -B package -DskipTests", "mvn -B test",
+     "target", r"<java\.version>([\d.]+)</java\.version>"),
+    ("build.gradle", "Java (Gradle)", "actions/setup-java",
+     "./gradlew dependencies", "./gradlew build -x test", "./gradlew test",
+     "build/libs", r"sourceCompatibility\s*=\s*['\"]?([\d.]+)"),
+    ("build.gradle.kts", "Kotlin (Gradle)", "actions/setup-java",
+     "./gradlew dependencies", "./gradlew build -x test", "./gradlew test",
+     "build/libs", r"jvmToolchain\((\d+)\)"),
+    ("go.mod", "Go", "actions/setup-go",
+     "go mod download", "go build -o app ./...", "go test ./...",
+     ".", r"^go\s+([\d.]+)"),
+    ("composer.json", "PHP", "shivammathur/setup-php",
+     "composer install --no-dev --optimize-autoloader --no-interaction", None,
+     "vendor/bin/phpunit", ".", r'"php"\s*:\s*"[^\d]*([\d.]+)'),
+    ("Gemfile", "Ruby", "ruby/setup-ruby",
+     "bundle install", None, "bundle exec rspec", ".", r"ruby\s+['\"]([\d.]+)"),
+    ("Cargo.toml", "Rust", "dtolnay/rust-toolchain",
+     "cargo fetch", "cargo build --release", "cargo test", "target/release", None),
+    ("mix.exs", "Elixir", "erlef/setup-beam",
+     "mix deps.get", "mix compile", "mix test", "_build", None),
+    ("pubspec.yaml", "Dart/Flutter", "dart-lang/setup-dart",
+     "dart pub get", "dart compile exe", "dart test", "build", None),
+]
+
+
+def detect_generic(root, d):
+    """Recognise a stack we have no dedicated detector for.
+
+    Everything returned is a SUGGESTION. `confirmed` is False on every field the skill
+    must put to the user before generating. Better a question than a wrong command.
+    """
+    for manifest, language, setup, install, build, test, output, ver_re in GENERIC_STACKS:
+        path = os.path.join(d, manifest)
+        if not os.path.exists(path):
+            continue
+
+        version = None
+        if ver_re:
+            m = re.search(ver_re, read(path), re.M)
+            if m:
+                version = m.group(1)
+
+        return {
+            "language": language,
+            "frameworks": [],
+            "package_manager": manifest,
+            "lockfile": None,
+            "runtime_version": {"value": version,
+                                "source": manifest if version else None},
+            # Conventions, not observations. The skill must confirm each one.
+            "install_command": install,
+            "build_command": build,
+            "test_command": test,
+            "lint_command": None,
+            "start_command": None,
+            "build_output": output,
+            "manifest": rel(root, path),
+            "setup_action": setup,
+            "confirmed": False,
+            "needs_user_confirmation": [
+                "install_command", "build_command", "test_command",
+                "start_command", "build_output", "runtime_version",
+            ],
+        }
+    return None
 
 
 # ------------------------------------------------------- existing workflow auth
@@ -594,6 +672,10 @@ workflow_auth[].auth_method (oidc | service_principal_secret | publish_profile |
 existing_auth_method (the convention to preserve), existing_auth_mixed
 workflow_config[].env (workflow-level env: block), .azure_app_name,
             .github_variables, .install_commands[].has_rationale, .has_paths_filter
+services[].confirmed (False = the commands are conventions, ASK before using them)
+services[].needs_user_confirmation[] (which fields to put to the user)
+services[].setup_action (the GitHub setup action for that stack, if any)
+has_unconfirmed_stack (True = at least one thing must be confirmed with the user)
 runtime_pins_in_workflow (a pin here satisfies BUILD-03)
 github_variables (${{ vars.X }} - NOT secrets, but must be created)
 deploy_workflow_count, deploy_workflows_without_paths (CI-09)
@@ -650,9 +732,21 @@ def main():
         "notes": [],
     }
 
+    unconfirmed = [s for s in services if not s.get("confirmed", True)]
+    for s in unconfirmed:
+        result["notes"].append(
+            f"{s['path']}: {s['language']} detected, but this stack has no dedicated "
+            f"detector. The install/build/test/start commands below are CONVENTIONS, not "
+            f"facts. ASK the user to confirm each one before generating - do not assume.")
+    result["has_unconfirmed_stack"] = bool(unconfirmed)
+
     if not services:
         result["notes"].append(
-            "No recognised manifest found. Inspect the repository manually before generating.")
+            "No manifest recognised at all. Do NOT guess the stack. Ask the user directly: "
+            "language and version, install command, build command, test command, start "
+            "command, and the folder the build output lands in. Every generated step must "
+            "come from their answer.")
+        result["has_unconfirmed_stack"] = True
     if result["is_monorepo"]:
         result["notes"].append(
             f"{len(services)} services detected - resolve the monorepo question before generating.")
