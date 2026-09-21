@@ -61,23 +61,30 @@ If it says `Skills (2)  deploy-check, deploy-check`, your install is stale. Foll
 
 ### Update to a new release
 
-```bash
-claude plugin marketplace update vilje-devops
-claude plugin update azure-deploy-kit
-```
-
-Then restart Claude Code and confirm the version with `claude plugin list`.
-
-**If the version did not change, or the new features are missing**, reinstall instead.
-This is the reliable path:
+Two commands. Refresh the catalogue, then install:
 
 ```bash
 claude plugin marketplace update vilje-devops
-claude plugin uninstall azure-deploy-kit
 claude plugin install azure-deploy-kit@vilje-devops
 ```
 
-Restart Claude Code afterwards.
+Restart Claude Code, then confirm with `claude plugin list`.
+
+**Use `install`, not `claude plugin update`.** Refreshing the marketplace removes the entry
+for whatever version you had, because that version is no longer in the catalogue. Running
+`claude plugin update` at that point fails with:
+
+```
+✘ Failed to update plugin "azure-deploy-kit": Plugin "azure-deploy-kit" is not installed
+```
+
+`install` handles both a first install and an upgrade, so it is the one command to
+remember. If it ever refuses, uninstall first:
+
+```bash
+claude plugin uninstall azure-deploy-kit
+claude plugin install azure-deploy-kit@vilje-devops
+```
 
 <details>
 <summary>Why a reinstall is sometimes needed</summary>
