@@ -44,6 +44,10 @@ These are not preferences. Breaking one makes the output dangerous.
    no `git push`. Generating the file is where your job ends.
 7. **Label every finding** Verified / Assumed / Unknown. See `references/report-format.md`.
 8. **Ask before writing files.** Present the file plan, get approval, then write.
+9. **Preserve the existing auth method.** If the detector reports `existing_auth_method`,
+   that is the team's convention - default to it and say so. Switching a team to a
+   different method is a decision they make, not you. Ask explicitly before changing it,
+   and never change it silently.
 
 ## Modes
 
@@ -83,6 +87,22 @@ commands, pinned runtime versions, listening ports, referenced environment varia
 Dockerfiles, compose files, IaC files, existing workflows, the services found in a
 monorepo, and the locations of suspected hardcoded secrets.
 
+It also reports **how existing workflows authenticate to Azure**: `existing_auth_method`
+(`oidc` / `service_principal_secret` / `publish_profile`), `existing_auth_mixed`, and per
+file the deploy targets and secret *names* used. Read these before Phase 3 - they decide
+which auth question you still need to ask, and which you do not.
+
+And it reads **configuration that lives inside the workflow**, which repo files never show.
+Four fields change what you are allowed to conclude:
+
+| Field | What it means for you |
+|---|---|
+| `runtime_pins_in_workflow` | A runtime pinned in a workflow `env:` block (`NODE_VERSION`, `PYTHON_VERSION`) **satisfies BUILD-03**. Never report the runtime as unpinned when this is set - that is a false blocker. |
+| `github_variables` | `${{ vars.X }}` references. These are **not** secrets, but they must exist in the repository. List them in the report next to the secrets. |
+| `workflow_config[].azure_app_name` | The Azure resource name, resolved from the workflow `env:` block. Reuse it - do not ask for a name you already have. |
+| `workflow_config[].install_commands[].has_rationale` | An install step with an explanatory comment above it. **Never replace it** with the conventional command (BUILD-08) - the comment usually documents a real platform workaround, and "fixing" it breaks the build. |
+| `deploy_workflows_without_paths` | More than one deploying workflow with no `paths:` filter: every push deploys every service (CI-09). |
+
 Then read what the script cannot interpret: the entry point, the Dockerfile, and any
 existing workflow in `.github/workflows/`. **Do not read `.env` files for their values.**
 Read `.env.example` freely; from a real `.env`, take key names only.
@@ -119,13 +139,27 @@ re-interrogate. If that file already exists, read it first and ask only about th
 
 1. Pick templates using the decision table in `references/azure-targets.md`.
 2. Read the chosen template files from `templates/`.
-3. Read `references/versions.md` and pin every action to the version recorded there.
-4. Substitute every `{{TOKEN}}`. Remove `{{#if ...}}` blocks that do not apply.
+3. **Read `references/auth.md` and resolve the auth method before substituting anything.**
+   - Default to `existing_auth_method` from the detector. If none, default to OIDC.
+   - Check the compatibility matrix in `auth.md`. Publish profile is **App Service only**;
+     with Container Apps or Static Web Apps it cannot work - refuse it and offer OIDC or a
+     service principal secret (AZ-07).
+   - Keep exactly ONE `{{#if AUTH_*}}` block and delete the other two, including their
+     marker comment lines. Then check the knock-on effects:
+     - `AUTH_OIDC` keeps `id-token: write`. The other two must NOT have it - granting it
+       unused is needless privilege, and the validator fails on it.
+     - `AUTH_PUBLISH_PROFILE` means no `azure/login`, so the az CLI is unauthenticated:
+       drop `SLOT_SWAP` and any `az ...` step, and use `REGISTRY_ACR_ADMIN` or
+       `REGISTRY_GHCR` rather than `REGISTRY_ACR_CLI`.
+     - If the repo already uses a non-default publish-profile secret name, use that name -
+       the detector reports it as `publish_profile_secret`.
+4. Read `references/versions.md` and pin every action to the version recorded there.
+5. Substitute every `{{TOKEN}}`. Remove `{{#if ...}}` blocks that do not apply.
    Token semantics are in `templates/TEMPLATES.md`.
-5. Any token you cannot fill from repo facts or user answers stays as a visible
+6. Any token you cannot fill from repo facts or user answers stays as a visible
    placeholder with a `# TODO(you):` comment directly above it.
-6. Present the file plan — path, purpose, new or modified — and get approval.
-7. Write the files. Respect hard rule 4 for anything that already exists.
+7. Present the file plan — path, purpose, new or modified — and get approval.
+8. Write the files. Respect hard rule 4 for anything that already exists.
 
 Generate the minimum set that actually works. A repo that needs one workflow gets one
 workflow. Do not emit Docker Compose, Bicep or extra environments nobody asked for.
@@ -151,16 +185,41 @@ Report each validation as passed, failed, or **not performed** with the reason. 
 
 ## Phase 6 — Final report
 
-Write `DEPLOYMENT.md` at the repo root using the exact structure in
-`references/report-format.md`. It must end with two sections the developer acts on:
+Write `DEPLOYMENT.md` at the repo root by **filling `templates/DEPLOYMENT.template.md`** —
+the same rule as the workflow templates. Do not author it freehand.
 
-- **Required GitHub configuration** — every secret and variable name, what each holds,
-  and where to obtain it. Names only, never values.
-- **Required Azure configuration** — the resources that must exist, and the federated
-  credential subject string if OIDC was chosen. See `references/auth.md`.
+Read `references/report-format.md` for the filling rules, and
+`examples/DEPLOYMENT.example.md` for a complete worked example of the expected depth and
+tone.
 
-Close with the remaining manual steps, in order, ending at "push to `<branch>` to trigger
-the workflow" — which the developer does, not you.
+The report answers five questions, as its five main sections:
+
+1. **What did the skill create?** — files written, what was detected, what problems were found
+2. **How does the deployment work?** — the pipeline as numbered plain-language steps
+3. **What do I need to configure?** — secrets and variables by name, Azure resources, and a
+   tickable pre-deployment checklist
+4. **How do I run the deployment?** — the exact trigger, and the command or button to use
+5. **How do I know whether it succeeded?** — where to look in the Actions tab, what was and
+   was not validated, and troubleshooting for *this* app
+
+Write for three readers at once: the developer who will debug the first failure, the team
+lead deciding whether to adopt it, and someone non-technical who needs to follow what
+happens. Plain sentences, every term explained once, every instruction saying where to
+click or what to run.
+
+Fill every value from the detector output, the user's confirmed answers, the files you
+generated, and the validator results. **Never invent one.** If a value is genuinely not
+available, write `{{NOT PROVIDED}}` and add a matching item to the section 3 checklist.
+
+Then validate it:
+
+```bash
+python "${CLAUDE_PLUGIN_ROOT}/skills/deploy-check/scripts/validate_report.py" DEPLOYMENT.md
+```
+
+Fix anything it fails before telling the user you are done. It checks the five sections are
+present, the disclaimer is verbatim, no secret value leaked in, no token was left unfilled,
+evidence labels are used, and that the report never claims a deployment succeeded.
 
 ## Reference files
 
@@ -172,6 +231,8 @@ Load these only when the phase calls for them.
 | `references/questions.md` | Phase 3 — what to ask, what to skip |
 | `references/azure-targets.md` | Phase 4 — target and template selection |
 | `references/versions.md` | Phase 4 — pinned action versions |
-| `references/auth.md` | Phase 4 and 6 — OIDC and alternatives |
-| `references/report-format.md` | Phase 2 and 6 — report structure |
+| `references/auth.md` | Phase 3, 4 and 6 — the three auth methods and the compatibility matrix |
+| `references/report-format.md` | Phase 2 and 6 — report rules, evidence labels, tone |
+| `templates/DEPLOYMENT.template.md` | Phase 6 — the report skeleton to fill |
+| `examples/DEPLOYMENT.example.md` | Phase 6 — a complete worked example |
 | `templates/TEMPLATES.md` | Phase 4 — token conventions |

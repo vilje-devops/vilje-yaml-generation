@@ -22,7 +22,7 @@ Last verified against the GitHub Releases API: **2026-09-21**.
 | Action | Pin | Notes |
 |---|---|---|
 | `azure/login` | `v3` | Requires `permissions: id-token: write` on the job when using OIDC |
-| `azure/webapps-deploy` | `v2` | App Service, code and container |
+| `azure/webapps-deploy` | `v3` | App Service, code and container. **v3, not v2** - see the trap below. |
 | `azure/static-web-apps-deploy` | `v1` | Only a `v1` major is published |
 | `azure/container-apps-deploy-action` | `v2` | Container Apps |
 | `azure/cli` | `v3` | For steps the dedicated actions do not cover |
@@ -41,6 +41,19 @@ Last verified against the GitHub Releases API: **2026-09-21**.
 |---|---|
 | `ubuntu-latest` | Default for everything |
 | `windows-latest` | Only for a genuine Windows-only build (full .NET Framework, Windows-specific native deps) |
+
+## A trap in the refresh command
+
+`azure/webapps-deploy` publishes `v3` tags, but the GitHub *releases* API still reports
+`v2.2.19` as "latest". Reading only `releases/latest` pins the wrong major and silently
+downgrades a repo that already runs v3.
+
+For any Azure action, check the **tags**, not just the latest release:
+
+```bash
+curl -s "https://api.github.com/repos/Azure/webapps-deploy/tags?per_page=100" \
+  | grep '"name"' | head -5
+```
 
 ## Policy
 
@@ -63,3 +76,6 @@ Last verified against the GitHub Releases API: **2026-09-21**.
 
 - If a repo already uses a **newer** major than listed here, do not downgrade it. Keep
   the repo's version, and note in the report that this file is behind.
+- Equally, do not *upgrade* a working repo's actions as a side effect of generating a new
+  workflow. Changing `actions/checkout@v4` to `@v7` in a pipeline that already works is a
+  change the team did not ask for. Mention it as an optional improvement instead.

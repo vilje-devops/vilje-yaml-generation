@@ -1,0 +1,43 @@
+name: Deploy Frontend (Azure App Service)
+
+on:
+  push:
+    branches: [dev_1]
+  workflow_dispatch:
+
+env:
+  AZURE_WEBAPP_NAME: ACCENT-P-D-FRONTEND
+  NODE_VERSION: "22.x"
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      # NOTE: `npm ci` is intentionally NOT used here. The lockfile resolves a
+      # different set of optional/platform packages on Linux (CI) vs the dev
+      # machine (e.g. @emnapi/*), so `npm ci` fails with "Missing ... from lock
+      # file". `npm install` reconciles the lock on Linux and still benefits
+      # from the restored cache.
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Build (Next.js)
+        run: npm run build
+        env:
+          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
+
+      - name: Deploy to Azure App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE_FE }}
+          package: .

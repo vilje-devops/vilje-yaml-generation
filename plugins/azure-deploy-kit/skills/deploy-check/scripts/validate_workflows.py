@@ -144,6 +144,70 @@ def check_permissions(doc, text, path, rep):
                     "permission is granted. Login will fail at runtime. See auth.md.", path)
 
 
+PUBLISH_PROFILE = re.compile(r"publish-profile\s*:")
+AZURE_LOGIN = re.compile(r"uses\s*:\s*[Aa]zure/login@")
+SP_CREDS = re.compile(r"creds\s*:")
+AZ_CLI_STEP = re.compile(r"^\s*(?:-\s*)?run\s*:.*\baz\s+\w", re.M)
+TARGET_ACTIONS = {
+    "App Service": re.compile(r"[Aa]zure/webapps-deploy@"),
+    "Container Apps": re.compile(r"[Aa]zure/container-apps-deploy-action@"),
+    "Static Web Apps": re.compile(r"[Aa]zure/static-web-apps-deploy@"),
+}
+# Publish profiles are an App Service feature. Nothing else accepts one.
+PUBLISH_PROFILE_INCOMPATIBLE = ("Container Apps", "Static Web Apps")
+
+
+def check_auth_compatibility(doc, text, path, rep):
+    """Reject auth/target combinations that cannot work (AZ-07)."""
+    has_profile = bool(PUBLISH_PROFILE.search(text))
+    has_login = bool(AZURE_LOGIN.search(text))
+    has_creds = bool(SP_CREDS.search(text))
+    targets = [name for name, pat in TARGET_ACTIONS.items() if pat.search(text)]
+
+    if has_profile:
+        method = "publish profile"
+    elif has_login and has_creds:
+        method = "service principal secret"
+    elif has_login:
+        method = "OIDC"
+    else:
+        method = None
+
+    if method:
+        rep.add(OK, "auth-method-detected",
+                f"Authenticates with: {method}"
+                + (f" | deploy target(s): {', '.join(targets)}" if targets else ""), path)
+
+    # The check the user asked for: publish profile against a target that has none.
+    if has_profile:
+        bad = [t for t in targets if t in PUBLISH_PROFILE_INCOMPATIBLE]
+        if bad:
+            rep.add(FAIL, "auth-target-compatible",
+                    f"Publish profile is used with {', '.join(bad)}, which has no publish "
+                    f"profile - only App Service does. This workflow cannot authenticate. "
+                    f"Use OIDC or a service principal secret instead (AZ-07).", path)
+        else:
+            rep.add(OK, "auth-target-compatible",
+                    "Publish profile is used with App Service - a valid combination.", path)
+
+        # A publish profile does not authenticate the az CLI.
+        if AZ_CLI_STEP.search(text):
+            rep.add(FAIL, "publish-profile-az-cli",
+                    "A publish profile does not authenticate the az CLI, but this workflow "
+                    "has an `az ...` run step and no azure/login. That step will fail. "
+                    "Remove it, or switch to OIDC / service principal secret (AZ-07).", path)
+
+    # Privilege that is granted but never used.
+    if not (has_login and not has_creds):
+        grants = [doc.get("permissions")] + [
+            j.get("permissions") for j in (doc.get("jobs") or {}).values()
+            if isinstance(j, dict)]
+        if any(isinstance(g, dict) and g.get("id-token") == "write" for g in grants):
+            rep.add(FAIL, "id-token-unused",
+                    "`id-token: write` is granted but this workflow does not use OIDC. "
+                    "Remove it - it is privilege with no purpose (SEC-03).", path)
+
+
 def check_triggers(doc, path, rep):
     on = doc.get("on")
     if isinstance(on, dict) and "pull_request_target" in on:
@@ -257,6 +321,34 @@ def run_actionlint(target, rep):
         rep.add(SKIP, "actionlint", f"actionlint could not be run: {exc}")
 
 
+DEPLOY_ACTION = re.compile(
+    r"[Aa]zure/(?:webapps-deploy|container-apps-deploy-action|static-web-apps-deploy)@")
+PATHS_KEY = re.compile(r"(?m)^[ \t]+paths(?:-ignore)?:")
+
+
+def check_cross_workflow(files, rep):
+    """More than one deploying workflow in a repo needs path filters (CI-09)."""
+    deploying = []
+    for path in files:
+        text = open(path, encoding="utf-8", errors="ignore").read()
+        if DEPLOY_ACTION.search(text):
+            deploying.append((path, bool(PATHS_KEY.search(text))))
+
+    if len(deploying) < 2:
+        return
+    unfiltered = [os.path.basename(p) for p, has in deploying if not has]
+    if unfiltered:
+        rep.add(FAIL, "multi-deploy-paths-filter",
+                f"{len(deploying)} workflows deploy from this repository and "
+                f"{len(unfiltered)} have no `on.push.paths:` filter "
+                f"({', '.join(unfiltered)}). Every push deploys every service - a change "
+                f"to one app redeploys the others (CI-09).")
+    else:
+        rep.add(OK, "multi-deploy-paths-filter",
+                f"All {len(deploying)} deploying workflows scope their triggers with "
+                f"`paths:`.")
+
+
 def unverifiable(rep):
     """State plainly what this tool structurally cannot check."""
     for detail in (
@@ -287,11 +379,13 @@ def main():
             if doc:
                 check_structure(doc, path, rep)
                 check_permissions(doc, text, path, rep)
+                check_auth_compatibility(doc, text, path, rep)
                 check_triggers(doc, path, rep)
             check_actions(text, path, rep)
             check_secrets(text, path, rep)
             check_leftover_tokens(text, path, rep)
             check_referenced_paths(text, args.repo_root, path, rep)
+        check_cross_workflow(files, rep)
         run_actionlint(args.target, rep)
 
     unverifiable(rep)

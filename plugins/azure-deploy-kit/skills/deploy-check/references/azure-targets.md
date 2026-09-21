@@ -44,6 +44,23 @@ A repo needing only deployment gets only the deploy workflow. Do not emit a CI w
 that duplicates steps the deploy workflow already runs — instead have the deploy workflow
 `needs:` the CI job, or keep CI for pull requests and deploy for the release branch.
 
+## Auth compatibility by target
+
+Resolve this together with the target - an incompatible pair has to be caught before
+generating, not after.
+
+| Target | Allowed auth methods |
+|---|---|
+| App Service (code) | OIDC, service principal secret, publish profile |
+| App Service (container) | OIDC, service principal secret, publish profile (see note) |
+| Container Apps | OIDC, service principal secret |
+| Static Web Apps | its own deployment token (`AZURE_STATIC_WEB_APPS_API_TOKEN`) |
+
+Note: publish profile deploys the image fine, but gives no `az acr login`. Use GHCR, or
+ACR with admin credentials.
+
+Full detail and the reasoning in `auth.md`.
+
 ## Monorepos
 
 If the detector reports more than one deployable service, resolve this **before**

@@ -1,5 +1,13 @@
 # Template: build a container image and deploy it to Azure App Service (container).
-# Auth: OIDC. Registry: ACR or GHCR - delete the block that does not apply.
+#
+# Keep exactly ONE AUTH_* block. All three methods work for the *deploy* step, but they
+# differ in how the image is pushed to the registry:
+#
+#   AUTH_OIDC             azure/login, then `az acr login` works
+#   AUTH_SP_SECRET        azure/login, then `az acr login` works
+#   AUTH_PUBLISH_PROFILE  NO azure/login, so `az acr login` is NOT available. The registry
+#                         must be GHCR, or ACR with admin user credentials held as the
+#                         secrets ACR_USERNAME / ACR_PASSWORD.
 #
 # Critical: the App Setting WEBSITES_PORT on the Web App must equal {{TARGET_PORT}},
 # the port the container actually listens on. A mismatch is a silent 502 (DOCK-02).
@@ -25,24 +33,47 @@ jobs:
     environment:
       name: "{{ENVIRONMENT_NAME}}"
     permissions:
-      id-token: write    # OIDC for azure/login
+# {{#if AUTH_OIDC}}
+      id-token: write    # OIDC only - delete for the other two methods
+# {{/if}}
       contents: read
       packages: write    # only needed for GHCR; delete for ACR
     steps:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Azure login
+# {{#if AUTH_OIDC}}
+      - name: Azure login (OIDC federated credentials)
         uses: azure/login@v3
         with:
           client-id: "${{ secrets.AZURE_CLIENT_ID }}"
           tenant-id: "${{ secrets.AZURE_TENANT_ID }}"
           subscription-id: "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+# {{/if}}
 
-# {{#if REGISTRY_ACR}}
+# {{#if AUTH_SP_SECRET}}
+      - name: Azure login (service principal secret)
+        uses: azure/login@v3
+        with:
+          creds: "${{ secrets.AZURE_CREDENTIALS }}"
+# {{/if}}
+
+# {{#if REGISTRY_ACR_CLI}}
+      # Requires azure/login above. Not available with AUTH_PUBLISH_PROFILE.
       # The deploying identity needs the AcrPush role on the registry.
       - name: Log in to Azure Container Registry
         run: az acr login --name "{{ACR_NAME}}"
+# {{/if}}
+
+# {{#if REGISTRY_ACR_ADMIN}}
+      # Fallback when there is no azure/login (AUTH_PUBLISH_PROFILE): ACR admin user.
+      # Enable the admin user on the registry and store both values as secrets.
+      - name: Log in to Azure Container Registry (admin credentials)
+        uses: docker/login-action@v4
+        with:
+          registry: "{{REGISTRY_SERVER}}"
+          username: "${{ secrets.ACR_USERNAME }}"
+          password: "${{ secrets.ACR_PASSWORD }}"
 # {{/if}}
 
 # {{#if REGISTRY_GHCR}}
@@ -69,11 +100,15 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Deploy image to App Service
-        uses: azure/webapps-deploy@v2
+        uses: azure/webapps-deploy@v3
         with:
           app-name: "{{AZURE_APP_NAME}}"
 # {{#if SLOT}}
           slot-name: "{{AZURE_SLOT_NAME}}"
+# {{/if}}
+# {{#if AUTH_PUBLISH_PROFILE}}
+          # Rename this secret if the repository already uses a different one.
+          publish-profile: "${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}"
 # {{/if}}
           images: "{{REGISTRY_SERVER}}/{{IMAGE_NAME}}:${{ github.sha }}"
 

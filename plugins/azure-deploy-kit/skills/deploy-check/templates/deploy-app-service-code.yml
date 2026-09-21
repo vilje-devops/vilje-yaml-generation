@@ -1,10 +1,16 @@
 # Template: deploy a non-containerized app to Azure App Service.
-# Auth: OIDC (see ../references/auth.md for the other two methods).
+#
+# Supports all three auth methods. Keep exactly ONE of the AUTH_* blocks and delete the
+# other two - see ../references/auth.md and ./TEMPLATES.md.
+#
+#   AUTH_OIDC             azure/login with client-id/tenant-id/subscription-id
+#   AUTH_SP_SECRET        azure/login with creds: AZURE_CREDENTIALS
+#   AUTH_PUBLISH_PROFILE  no azure/login at all; webapps-deploy carries the profile
 #
 # Prerequisites the developer must complete first - list these in DEPLOYMENT.md:
 #   - App Service exists with the correct runtime stack
-#   - Federated credential subject matches this workflow exactly
-#   - Secrets AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_SUBSCRIPTION_ID created
+#   - OIDC only: federated credential subject matches this workflow exactly
+#   - The secrets for the chosen method exist in the repository
 name: Deploy to Azure App Service
 
 on:
@@ -63,12 +69,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # Gates the job behind this GitHub Environment's reviewers and secrets.
-    # The OIDC subject must then be the `environment:` form, not `ref:` - see auth.md.
+    # OIDC only: the federated subject must then be the `environment:` form, not `ref:`.
     environment:
       name: "{{ENVIRONMENT_NAME}}"
       url: "${{ steps.deploy.outputs.webapp-url }}"
     permissions:
-      id-token: write   # required for OIDC; without it azure/login fails
+# {{#if AUTH_OIDC}}
+      # Required for OIDC only. Delete this line for the other two methods - granting
+      # id-token: write when nothing requests a token is needless privilege (SEC-03).
+      id-token: write
+# {{/if}}
       contents: read
     steps:
       # Deploy the artifact that was tested - never rebuild here (CI-04).
@@ -78,25 +88,48 @@ jobs:
           name: app-build
           path: ./app-build
 
-      - name: Azure login
+# {{#if AUTH_OIDC}}
+      - name: Azure login (OIDC federated credentials)
         uses: azure/login@v3
         with:
           client-id: "${{ secrets.AZURE_CLIENT_ID }}"
           tenant-id: "${{ secrets.AZURE_TENANT_ID }}"
           subscription-id: "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+# {{/if}}
+
+# {{#if AUTH_SP_SECRET}}
+      - name: Azure login (service principal secret)
+        uses: azure/login@v3
+        with:
+          creds: "${{ secrets.AZURE_CREDENTIALS }}"
+# {{/if}}
+
+# {{#if AUTH_PUBLISH_PROFILE}}
+      # No azure/login step. The publish profile carries its own deployment credentials,
+      # so the az CLI is NOT authenticated in this job - any `az ...` step will fail.
+# {{/if}}
 
       - name: Deploy to App Service
         id: deploy
-        uses: azure/webapps-deploy@v2
+        uses: azure/webapps-deploy@v3
         with:
           app-name: "{{AZURE_APP_NAME}}"
 # {{#if SLOT}}
           slot-name: "{{AZURE_SLOT_NAME}}"
 # {{/if}}
+# {{#if AUTH_PUBLISH_PROFILE}}
+          # Rename this secret if the repository already uses a different one - the
+          # detector reports the existing name. Never inline the profile XML (SEC-02).
+          publish-profile: "${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}"
+# {{/if}}
           package: ./app-build
 
-# {{#if SLOT}}
+# {{#if SLOT_SWAP}}
       # Zero-downtime release and a one-command rollback (swap back).
+      # SLOT_SWAP requires an az CLI login, so it is only valid with AUTH_OIDC or
+      # AUTH_SP_SECRET. With AUTH_PUBLISH_PROFILE delete this step - the deploy above
+      # already targets the slot, and the swap must be done manually or in a separate
+      # workflow that authenticates properly.
       - name: Swap staging slot into production
         run: |
           az webapp deployment slot swap \

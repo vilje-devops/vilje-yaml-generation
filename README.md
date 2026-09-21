@@ -59,8 +59,10 @@ claude plugin list
 
 - `.github/workflows/ci.yml` and `.github/workflows/deploy.yml`, filled from tested
   templates and matched to the application it actually found
-- `DEPLOYMENT.md` — readiness findings, required GitHub secrets, required Azure
-  configuration, and the remaining manual steps
+- `DEPLOYMENT.md` — a plain-language guide answering five questions: what was created,
+  how the deployment works, what you must configure, how to run it, and how to tell whether
+  it worked. Includes a pre-deployment checklist and troubleshooting for *your* app.
+  Written to be readable by developers, team leads and non-technical readers alike
 - `.deploy-check.yml` — your confirmed answers, so re-runs do not re-interrogate you
   (contains choices and names only, never secrets)
 
@@ -85,6 +87,23 @@ the report.
 
 Stacks: Node/TypeScript, Python, .NET. Anything else is analyzed, and the generated
 workflow is marked `Assumed` in the report.
+
+### Supported authentication methods
+
+| Method | App Service | Container Apps | Static Web Apps |
+|---|---|---|---|
+| OIDC federated credentials *(default)* | yes | yes | n/a |
+| Service principal secret | yes | yes | n/a |
+| **Publish profile** | **yes** | no | no |
+
+Static Web Apps uses its own deployment token rather than any of the three.
+
+Publish profile is an App Service feature: Container Apps and Static Web Apps have no
+publish profile, so that combination is rejected rather than generated (check `AZ-07`).
+
+**Existing conventions are preserved.** If a repo already has workflows, the detector
+reads how they authenticate and keeps that method by default - including the existing
+secret names. Changing method is something the skill asks about, never does silently.
 
 ---
 
@@ -114,9 +133,15 @@ plugins/azure-deploy-kit/
       auth.md                            OIDC, service principal, publish profile
       report-format.md                   DEPLOYMENT.md structure
     templates/                           tested workflow YAML with {{TOKEN}} placeholders
+    examples/
+      DEPLOYMENT.example.md              a complete worked report
     scripts/
       detect_stack.py                    deterministic repo facts -> JSON
       validate_workflows.py              YAML, structure and security checks
+      validate_report.py                 DEPLOYMENT.md structure and safety checks
+  tests/
+    run_tests.py                         test suite - all three auth methods
+    fixtures/                            8 workflow fixtures, valid and invalid
 ```
 
 ## Contributing
@@ -128,9 +153,13 @@ Before committing a change:
 
 ```bash
 claude plugin validate ./plugins/azure-deploy-kit
+python plugins/azure-deploy-kit/tests/run_tests.py
 python plugins/azure-deploy-kit/skills/deploy-check/scripts/validate_workflows.py \
        plugins/azure-deploy-kit/skills/deploy-check/templates
 ```
 
-Templates are expected to fail only the `no-leftover-tokens` check — they contain
-unfilled tokens by design. Any other failure is a real defect.
+A raw template holds all three auth branches at once, so validating the `templates/`
+directory legitimately reports three artifact failures: `no-leftover-tokens`,
+`id-token-unused` and `publish-profile-az-cli`. Those combinations only coexist *before*
+pruning. `run_tests.py` group 5 pins this — any **other** failure is a real defect that
+every generated workflow would inherit.

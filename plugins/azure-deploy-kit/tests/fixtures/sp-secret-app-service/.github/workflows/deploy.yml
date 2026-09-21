@@ -1,0 +1,23 @@
+name: Deploy to Azure App Service
+on:
+  push:
+    branches: ["main"]
+permissions:
+  contents: read
+concurrency:
+  group: deploy-production
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: azure/login@v3
+        with:
+          creds: "${{ secrets.AZURE_CREDENTIALS }}"
+      - uses: azure/webapps-deploy@v2
+        with:
+          app-name: "vilje-api-prod"
+          package: .

@@ -1,5 +1,11 @@
 # Template: build a container image and deploy it to Azure Container Apps.
-# Auth: OIDC (publish profile cannot be used for Container Apps).
+#
+# Auth: OIDC or service principal secret ONLY. Keep exactly one AUTH_* block.
+#
+#   AUTH_PUBLISH_PROFILE IS NOT VALID HERE. Publish profiles are an App Service feature.
+#   Container Apps has no publish profile, and every step below needs an authenticated
+#   az CLI. If the user asks for publish profile with this target, refuse and offer
+#   either OIDC or a service principal secret (check AZ-07).
 #
 # Critical: --target-port must equal the port the container listens on ({{TARGET_PORT}}).
 # A mismatch produces a healthy-looking revision that serves nothing (DOCK-02).
@@ -25,19 +31,30 @@ jobs:
     environment:
       name: "{{ENVIRONMENT_NAME}}"
     permissions:
-      id-token: write    # OIDC for azure/login
+# {{#if AUTH_OIDC}}
+      id-token: write    # OIDC only - delete for AUTH_SP_SECRET
+# {{/if}}
       contents: read
       packages: write    # only needed for GHCR; delete for ACR
     steps:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Azure login
+# {{#if AUTH_OIDC}}
+      - name: Azure login (OIDC federated credentials)
         uses: azure/login@v3
         with:
           client-id: "${{ secrets.AZURE_CLIENT_ID }}"
           tenant-id: "${{ secrets.AZURE_TENANT_ID }}"
           subscription-id: "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+# {{/if}}
+
+# {{#if AUTH_SP_SECRET}}
+      - name: Azure login (service principal secret)
+        uses: azure/login@v3
+        with:
+          creds: "${{ secrets.AZURE_CREDENTIALS }}"
+# {{/if}}
 
 # {{#if REGISTRY_ACR}}
       # The deploying identity needs AcrPush on the registry, and the Container App

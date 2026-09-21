@@ -1,0 +1,21 @@
+name: Deploy to Container Apps
+on:
+  push:
+    branches: ["main"]
+permissions:
+  contents: read
+concurrency:
+  group: deploy-production
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: azure/container-apps-deploy-action@v2
+        with:
+          containerAppName: "ca-vilje-api"
+          resourceGroup: "rg-vilje-prod"
+          publish-profile: "${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}"

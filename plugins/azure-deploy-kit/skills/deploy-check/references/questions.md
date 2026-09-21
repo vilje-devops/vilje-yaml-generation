@@ -46,8 +46,13 @@ Group into `AskUserQuestion` calls of at most 4. Skip any already answered by
 
 ### Group 2 — auth and resources (ask when generating)
 
-5. **Authentication method.** OIDC federated credentials (recommended, no stored secret) /
-   service principal secret / publish profile. See `auth.md`.
+5. **Authentication method.** Ask only when the detector found no existing method.
+   - `existing_auth_method` set -> **do not ask.** State what you detected and keep it.
+     Only ask if the user wants to change it, or if it is incompatible with the chosen
+     target (publish profile + Container Apps / Static Web Apps must change, AZ-07).
+   - `existing_auth_mixed` true -> ask which to standardise on.
+   - Nothing detected -> OIDC federated credentials (recommended, no stored secret) /
+     service principal secret / publish profile (App Service only). See `auth.md`.
 6. **Are the Azure resources already provisioned?** Yes — then ask for the resource
    **names** so the workflow is concrete. No — then leave `{{TOKEN}}` placeholders and
    list creation as a manual prerequisite.
@@ -83,10 +88,14 @@ app_path: .
 environments: [staging, production]
 trigger: { type: push, branch: main }
 production_approval: true
-auth: oidc
+# oidc | service_principal_secret | publish_profile
+auth_method: publish_profile
+# Whether this came from the repo or from the user - preserve it on later runs.
+auth_source: detected_from_existing_workflow
 registry: null
 migrations: manual
-secrets_required: [AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID]
+# Secret NAMES only. Never a value.
+secrets_required: [AZURE_WEBAPP_PUBLISH_PROFILE]
 ```
 
 Only names and choices go in this file. **Never a secret value.** Confirm that before

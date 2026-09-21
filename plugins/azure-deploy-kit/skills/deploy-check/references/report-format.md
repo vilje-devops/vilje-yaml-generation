@@ -2,6 +2,33 @@
 
 Two outputs: a short chat summary, and `DEPLOYMENT.md` written to the repo root.
 
+`DEPLOYMENT.md` is built from `templates/DEPLOYMENT.template.md` — fill it in, do not
+author it freehand. Same rule as the workflow templates, for the same reason: a report
+written from memory comes out different every run.
+
+After writing it, validate it:
+
+```bash
+python "${CLAUDE_PLUGIN_ROOT}/skills/deploy-check/scripts/validate_report.py" DEPLOYMENT.md
+```
+
+## Who reads this
+
+Three audiences, one document:
+
+- **The developer** who will push the code and debug the first failure.
+- **The team lead** who wants to know what changed and what it costs to adopt.
+- **Someone non-technical** who needs to understand what happens and what is still needed.
+
+Write so the third person can follow it. That means: no unexplained jargon, short
+sentences, and every instruction stating *where* to click or *what* to run. When a term is
+unavoidable (OIDC, publish profile, App Service), explain it in one plain sentence the
+first time it appears.
+
+This does not mean vague. "Push to `main` and the workflow runs" is simple *and* precise.
+"Deployment is triggered automatically via the configured CI/CD pipeline" is jargon that
+says less.
+
 ## Evidence labels
 
 Every factual claim carries one. This is what separates a useful report from a
@@ -16,104 +43,66 @@ confident-sounding guess.
 Never upgrade an Assumed to a Verified because it is probably right. Anything about live
 Azure or GitHub state is **always** Unknown — you have no access to either.
 
+In the report, mark them inline as `[Verified]`, `[Assumed]`, `[Unknown]` so a reader
+scanning the page can see instantly which rows are solid.
+
+## The five questions
+
+The report answers five questions, in this order, as its five main sections. A reader
+should be able to jump to the one they need.
+
+| # | Section heading | Answers |
+|---|---|---|
+| 1 | What did the skill create? | files written, what was analyzed, what problems were found |
+| 2 | How does the deployment work? | the pipeline in plain steps |
+| 3 | What do I need to configure? | secrets, variables, Azure resources, the checklist |
+| 4 | How do I run the deployment? | the exact trigger and what to do |
+| 5 | How do I know whether it succeeded? | where to look, what was validated, troubleshooting |
+
+Before them sits a short header: status, Azure target, auth method, trigger, and a plain
+statement that nothing has been deployed.
+
+## Rules for filling it
+
+1. **Never invent a value.** Every resource name, secret name, branch, path and command
+   comes from the detector output, the user's confirmed answers, or a file you read. If
+   you do not have it, write `{{NOT PROVIDED}}` and add it to the checklist in section 3.
+2. **Secret names only, never values.** This includes publish profile XML, connection
+   strings and `AZURE_CREDENTIALS` JSON. If you found a hardcoded secret in the repo,
+   report the file and line, never the content.
+3. **Never say the deployment succeeded, worked, or is live.** You did not run it. Say
+   what will happen when the developer pushes.
+4. **Keep the disclaimer verbatim.** The exact sentence is in the template. Do not soften
+   or reword it.
+5. **Delete what does not apply.** No Dockerfile means no container rows. Publish profile
+   means no federated-credential section. An empty section with "N/A" is noise.
+6. **Every "Failed" and "Not performed" row states a reason.** "actionlint not installed",
+   "no Azure access", "`--run-build` not set".
+7. **Troubleshooting entries must match this app.** Generic advice is filler. If the app
+   binds a hardcoded port, the 502 row is relevant and says so; if it does not, drop it.
+
 ## Chat summary
 
-Short. The detail belongs in the file.
+Separate from the file. Short — the detail belongs in `DEPLOYMENT.md`.
 
 ```
-Target:    Azure Container Apps (recommended — Dockerfile present, scale-to-zero wanted)
+Target:    Azure App Service (code) — no Dockerfile found
+Auth:      publish profile — kept, your existing workflows already use it
 Verdict:   Blocked — 2 blockers
 Blockers:  RUN-01 hardcoded port 8000 (src/main.py:42)
            SEC-01 connection string in source (src/db.py:11)
 Files:     .github/workflows/ci.yml (new), deploy.yml (new), DEPLOYMENT.md (new)
-Next:      fix the 2 blockers, create 3 GitHub secrets, then push to main
-Full report: DEPLOYMENT.md
+Next:      fix the 2 blockers, create 1 GitHub secret, then push to main
+Full guide: DEPLOYMENT.md
 ```
-
-## DEPLOYMENT.md structure
-
-Use these eight sections in this order.
-
-### 1. Summary
-
-Verdict (Blocked / Ready with caveats / Cannot determine), the chosen target with its
-one-line rationale, and counts by severity. Date and plugin version.
-
-### 2. Detected architecture
-
-What the app actually is. Table of: language, framework, package manager, runtime version
-and where it is pinned, build command, start command, listening port, containerized
-yes/no, services found. Label each row.
-
-### 3. Readiness findings
-
-Grouped `Blockers` / `Warnings` / `Info`. Each finding:
-
-```
-**RUN-01** · blocker · Verified
-Server binds a hardcoded port 8000 (`src/main.py:42`).
-App Service injects PORT; a hardcoded port returns 502.
-Fix: `uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))`
-```
-
-Then a `Skipped checks` line naming the sections that did not apply and why.
-
-### 4. Generated files
-
-Table: path, purpose, new or modified. If anything was written as `.generated.yml`
-because a file already existed, say so here and show what differs.
-
-### 5. Validation results
-
-Three lists, all three always present:
-
-- **Passed** — what was checked and passed.
-- **Failed** — what was checked and failed.
-- **Not performed** — what was not checked, each with its reason
-  ("`actionlint` not installed", "no Azure access", "`--run-build` not set").
-
-Then verbatim, not paraphrased:
-
-> YAML validation confirms syntax and structure only. It does not prove the deployment
-> will succeed. Azure resources, permissions, quotas and network paths are unverified.
-
-### 6. Required GitHub configuration
-
-Every secret and variable, by name. Values never appear.
-
-| Name | Type | Holds | Where to get it |
-|---|---|---|---|
-| `AZURE_CLIENT_ID` | secret | App registration client ID | Entra ID > App registrations |
-
-Plus any GitHub Environment to create, and its required reviewers.
-
-### 7. Required Azure configuration
-
-Resources that must exist, each marked `Unknown - verify in the portal`. Include the
-exact federated credential subject string when OIDC was chosen. Include the role
-assignments and their scope.
-
-### 8. Remaining manual steps
-
-Numbered, in order, each one action. Ends with the developer pushing:
-
-```
-1. Fix RUN-01 and SEC-01 (see section 3).
-2. Rotate the connection string exposed in src/db.py — it is in git history.
-3. Create the resource group and Container App (section 7).
-4. Add the federated credential with subject: repo:acme/api:ref:refs/heads/main
-5. Add the 3 repository secrets (section 6).
-6. Review .github/workflows/deploy.yml.
-7. Push to main to trigger the first deploy.
-```
-
-Step 7 is the developer's action. **Never perform it.**
 
 ## Tone
 
 - Specific over hedged: "binds a hardcoded 8000 at `src/main.py:42`", not "may have port
   configuration issues".
 - One sentence of why per blocker. The reader needs the reason to prioritise.
+- Plain words over ceremony. "You need to create this secret" beats "the following
+  prerequisite must be satisfied".
 - No praise, no filler. The report is a work order.
-- If you could not determine something, say that in a sentence and move on. An honest
+- If you could not determine something, say so in a sentence and move on. An honest
   Unknown is worth more than a plausible guess.

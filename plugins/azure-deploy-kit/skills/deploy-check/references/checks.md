@@ -26,11 +26,12 @@ and say in the report that you skipped it and why.
 |---|---|---|---|
 | BUILD-01 | blocker | A lockfile is committed (`package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `poetry.lock`, `uv.lock`, `requirements.txt` pinned, `packages.lock.json`) | Commit the lockfile. Without it CI installs different versions than the developer tested. |
 | BUILD-02 | blocker | A single deterministic build command exists and is discoverable (`npm run build`, `dotnet publish`, `pip install -r`, Makefile target) | Add a `build` script. CI cannot guess. |
-| BUILD-03 | blocker | Runtime version is pinned in-repo (`.nvmrc`, `engines.node`, `global.json`, `.python-version`, `pyproject.requires-python`, Dockerfile base tag) | Pin it. The runner default changes without warning and will eventually break the build. |
+| BUILD-03 | blocker | Runtime version is pinned — in repo files (`.nvmrc`, `engines.node`, `global.json`, `.python-version`, Dockerfile base tag) **or** in a workflow `env:` block (`NODE_VERSION`, `PYTHON_VERSION`). The detector reports the latter as `runtime_pins_in_workflow`. | Pin it somewhere. Do **not** report this as missing when a workflow already pins it — that is a false blocker. |
 | BUILD-04 | warning | Pinned runtime version is still supported by the chosen Azure target | Check the target's supported runtime list; upgrade if the version is retired. |
 | BUILD-05 | warning | Build output path is stable and known (`dist/`, `build/`, `.next/`, `publish/`) | Needed for the artifact upload step. |
 | BUILD-06 | warning | Build does not require network access to a private registry without a configured token | Add the registry auth step, or vendor the dependency. |
 | BUILD-07 | info | `.gitignore` excludes build output and `node_modules` | |
+| BUILD-08 | blocker | An existing install command that carries an explanatory comment is preserved verbatim | The detector reports `install_commands[].has_rationale`. A comment above `npm install` usually documents a real platform workaround (optional deps resolving differently on Linux). Replacing it with the conventional `npm ci` breaks the build. Never "correct" a documented choice — ask. |
 
 ## RUN — runtime contract with Azure
 
@@ -102,6 +103,7 @@ and say in the report that you skipped it and why.
 | CI-06 | warning | Production deploy is gated by a GitHub Environment with required reviewers | |
 | CI-07 | warning | `concurrency:` set so two pushes cannot deploy simultaneously | Concurrent deploys to one slot produce an indeterminate result. |
 | CI-08 | info | `timeout-minutes` set on jobs | |
+| CI-09 | warning | When a repo holds more than one deploying workflow, each has an `on.push.paths:` filter | Without it every push deploys every service — a CSS change redeploys the backend. The detector reports `deploy_workflow_count` and `deploy_workflows_without_paths`. |
 
 ## AZ — Azure target fit
 
@@ -109,6 +111,9 @@ and say in the report that you skipped it and why.
 |---|---|---|---|
 | AZ-01 | blocker | The chosen Azure service can actually host this app shape | See `azure-targets.md`. A stateful websocket app on Static Web Apps will not work. |
 | AZ-02 | blocker | Auth method is decided and its prerequisites are listed | See `auth.md`. |
+| AZ-07 | blocker | Auth method is compatible with the chosen target - publish profile is App Service only | Container Apps and Static Web Apps have no publish profile. Switch to OIDC or a service principal secret. |
+| AZ-08 | blocker | Publish-profile workflows contain no `az ...` step and no `id-token: write` | A publish profile does not authenticate the az CLI and requests no OIDC token. |
+| AZ-09 | warning | An existing auth convention is preserved, or the change was explicitly agreed | Switching a team auth method silently causes a failure they cannot explain. |
 | AZ-03 | `Unknown` | Target resource already exists, with the right SKU and runtime stack | You cannot verify this. Always report as Unknown and list it as a manual prerequisite. |
 | AZ-04 | `Unknown` | The deploying identity holds the required role on the resource | Same — always Unknown. |
 | AZ-05 | warning | For container targets, a registry (ACR or GHCR) is chosen and its auth is configured | |

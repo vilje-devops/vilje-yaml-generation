@@ -89,6 +89,57 @@ Simplest, weakest. The profile contains deployment credentials in plain XML.
 No `azure/login` step. Does not work for Container Apps. The profile must be re-downloaded
 and the secret updated whenever the app's publishing credentials are reset — call that out.
 
+**`startup-command` is not supported with publish-profile auth.** The input exists on
+`azure/webapps-deploy` but is ignored unless the action is authenticated through
+`azure/login`. The startup command must instead be set once, by hand, in the Azure portal:
+
+> Web App → **Configuration** → **General settings** → **Startup Command**
+
+Examples to put there:
+
+| Stack | Startup command |
+|---|---|
+| Next.js | `npm run start` |
+| FastAPI / gunicorn | `gunicorn app.main:app --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000` |
+
+Always say this explicitly in the report when the auth method is publish profile. A
+generated workflow carrying `startup-command:` under a publish profile looks correct and
+does nothing, which is the hardest kind of failure to diagnose.
+
+## Compatibility matrix - check this before generating
+
+| Target | OIDC | Service principal secret | Publish profile |
+|---|---|---|---|
+| App Service (code) | yes | yes | **yes** |
+| App Service (container) | yes | yes | yes, but the registry push needs its own credentials |
+| Container Apps | yes | yes | **NO - no such thing exists** |
+| Static Web Apps | n/a | n/a | **NO** - SWA uses its own deployment token |
+
+A publish profile is an App Service feature. Container Apps and Static Web Apps have no
+publish profile at all, so the combination cannot be made to work - refuse it and offer
+OIDC or a service principal secret. This is check `AZ-07`, and `validate_workflows.py`
+fails on it.
+
+Two further consequences of publish profile, both easy to miss:
+
+- **The az CLI is not authenticated.** There is no `azure/login` step, so any `az ...` run
+  step fails. That rules out the slot-swap step; deploy directly to the slot instead.
+- **`id-token: write` must not be granted.** Nothing requests an OIDC token, so the
+  permission is pure privilege with no purpose (SEC-03).
+
+## Preserving an existing convention
+
+If `detect_stack.py` reports `existing_auth_method`, that is the team established
+convention. **Default to it.** Say which method you detected and that you are keeping it.
+
+Switching a team to a different method is their decision, not yours - ask explicitly, and
+never migrate silently. If `existing_auth_mixed` is true, different workflows disagree:
+ask which to standardise on rather than picking one.
+
+Also reuse the **existing secret names**. A repo using `AZURE_PUBLISH_PROFILE_PROD` should
+not suddenly be handed a workflow referencing `AZURE_WEBAPP_PUBLISH_PROFILE` - that is a
+silent failure the developer then has to debug.
+
 ## Choosing
 
 | Situation | Use |

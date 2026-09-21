@@ -1,0 +1,20 @@
+name: Deploy to Static Web Apps
+on:
+  push:
+    branches: ["main"]
+permissions:
+  contents: read
+concurrency:
+  group: deploy-production
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: azure/static-web-apps-deploy@v1
+        with:
+          app_location: "."
+          publish-profile: "${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}"

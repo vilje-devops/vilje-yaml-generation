@@ -28,6 +28,75 @@ consistency guarantee is gone. That separation is the point of the design.
 
 ---
 
+## Authentication
+
+Three methods, branched inside the templates with `{{#if AUTH_*}}` blocks rather than
+duplicated into separate files:
+
+| Block | Method | Valid for |
+|---|---|---|
+| `AUTH_OIDC` | federated credentials, no stored secret | App Service, Container Apps |
+| `AUTH_SP_SECRET` | `AZURE_CREDENTIALS` JSON | App Service, Container Apps |
+| `AUTH_PUBLISH_PROFILE` | `AZURE_WEBAPP_PUBLISH_PROFILE` | **App Service only** |
+
+Three consequences of publish profile that the generator must handle, all enforced by
+`validate_workflows.py`:
+
+1. No `azure/login`, so the **az CLI is unauthenticated** - no slot swap, no `az acr login`.
+2. **`id-token: write` must be absent** - nothing requests an OIDC token.
+3. **Container Apps and Static Web Apps reject it outright** - they have no publish profile.
+
+`detect_stack.py` reports `existing_auth_method` so the skill preserves a team convention
+instead of switching it. See `skills/deploy-check/references/auth.md`.
+
+## The generated report
+
+`DEPLOYMENT.md` is filled from `skills/deploy-check/templates/DEPLOYMENT.template.md`, the
+same way workflows are filled from their templates - a report written freehand comes out
+different every run.
+
+It answers five questions, as its five sections:
+
+1. What did the skill create?
+2. How does the deployment work?
+3. What do I need to configure?
+4. How do I run the deployment?
+5. How do I know whether it succeeded?
+
+Written for three readers at once: the developer debugging the first failure, the team lead
+deciding whether to adopt it, and someone non-technical following what happens.
+
+`skills/deploy-check/examples/DEPLOYMENT.example.md` is a complete worked example, built
+from real detector and validator output on the `publish-profile-app-service` fixture.
+
+After writing a report the skill runs:
+
+```bash
+python skills/deploy-check/scripts/validate_report.py DEPLOYMENT.md
+```
+
+which enforces: the five sections exist, the disclaimer is verbatim, no secret value leaked
+in, no token was left unfilled, evidence labels are used, and the report never claims a
+deployment succeeded.
+
+## Tests
+
+```bash
+python tests/run_tests.py -v
+```
+
+98 assertions across the detector, the validator, the templates, the report template, the
+report linter, a no-inline-credential safety sweep, and a regression group built from the
+Vilje team's real workflows. See `tests/README.md`.
+
+### Configuration that lives in the workflow
+
+Reading only repo files produces false blockers. `detect_stack.py` also parses each
+workflow's `env:` block, its `${{ vars.X }}` references, its resolved Azure app name, and
+whether an install step carries an explanatory comment. A runtime pinned as
+`NODE_VERSION: "22.x"` in a workflow is pinned - reporting it as missing is a bug, and
+test group 8 keeps it from coming back.
+
 ## Maintenance
 
 ### Refresh action versions (quarterly)
@@ -88,9 +157,13 @@ python skills/deploy-check/scripts/validate_workflows.py skills/deploy-check/tem
 python skills/deploy-check/scripts/detect_stack.py --root /path/to/some/repo
 ```
 
-Templates are expected to fail `no-leftover-tokens` and nothing else. If a template starts
-failing `permissions-scope`, `oidc-id-token`, `action-pinned` or `deploy-trigger-scope`,
-that is a genuine regression — every generated workflow would inherit it.
+Validating `templates/` directly reports three expected artifacts, because a raw template
+contains every auth branch simultaneously: `no-leftover-tokens`, `id-token-unused` and
+`publish-profile-az-cli`. Test group 5 asserts that set exactly.
+
+If a template starts failing anything else — `permissions-scope`, `oidc-id-token`,
+`action-pinned`, `deploy-trigger-scope`, `auth-target-compatible` — that is a genuine
+regression, and every generated workflow would inherit it.
 
 ---
 

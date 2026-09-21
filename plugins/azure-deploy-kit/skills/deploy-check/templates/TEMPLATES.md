@@ -72,6 +72,47 @@ whole block including markers when it does not. Never leave a `{{#if}}` marker i
 | `{{DOTNET_VERSION}}` | `9.0.x` |
 | `{{PROJECT_PATH}}` | `src/Api/Api.csproj` |
 
+### Authentication
+
+Exactly one auth method applies per generated workflow. `{{AUTH_METHOD}}` is the recorded
+choice; the templates branch on the three `{{#if AUTH_*}}` blocks.
+
+| Token / flag | Meaning |
+|---|---|
+| `{{AUTH_METHOD}}` | `oidc` / `service_principal_secret` / `publish_profile` - recorded in `.deploy-check.yml` |
+| `{{#if AUTH_OIDC}}` | keep for OIDC federated credentials (default) |
+| `{{#if AUTH_SP_SECRET}}` | keep for a service principal secret |
+| `{{#if AUTH_PUBLISH_PROFILE}}` | keep for a publish profile - **App Service only** |
+
+**Secret names are not tokens.** The templates carry the conventional names below. If the
+repository already uses different ones, the detector reports them as
+`workflow_auth[].secret_names` and `publish_profile_secret` - use the repo names and list
+them in the report.
+
+| Method | Secrets referenced | `id-token: write` |
+|---|---|---|
+| OIDC | `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` | **required** |
+| Service principal secret | `AZURE_CREDENTIALS` | must be absent |
+| Publish profile | `AZURE_WEBAPP_PUBLISH_PROFILE` | must be absent |
+
+Substitution rules, in order:
+
+1. Keep one `AUTH_*` block, delete the other two **including their marker comments**.
+2. For OIDC keep `id-token: write`; for the other two **delete that line**. Granting it
+   unused is privilege with no purpose, and `validate_workflows.py` fails on it.
+3. Publish profile gives no `azure/login`, so the az CLI is unauthenticated in that job:
+   - delete the `{{#if SLOT_SWAP}}` block and every `az ...` run step
+   - for containers use `REGISTRY_ACR_ADMIN` or `REGISTRY_GHCR`, never `REGISTRY_ACR_CLI`
+4. Publish profile with Container Apps or Static Web Apps is invalid - refuse (AZ-07).
+
+### Registry flags (container targets)
+
+| Flag | When |
+|---|---|
+| `{{#if REGISTRY_ACR_CLI}}` | ACR via `az acr login` - needs OIDC or SP secret |
+| `{{#if REGISTRY_ACR_ADMIN}}` | ACR via admin user - the only ACR option under publish profile |
+| `{{#if REGISTRY_GHCR}}` | ghcr.io via `GITHUB_TOKEN` - works with any auth method |
+
 ### Azure
 
 | Token | Ask the user — never invent | Example |

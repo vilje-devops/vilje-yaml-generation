@@ -1,0 +1,5 @@
+{
+  "name": "fixture-app",
+  "engines": { "node": "22" },
+  "scripts": { "build": "tsc", "test": "jest" }
+}

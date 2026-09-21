@@ -387,6 +387,188 @@ def find_services(root):
     return services
 
 
+# ------------------------------------------------------- existing workflow auth
+
+# Order matters: publish-profile is checked first because a workflow can contain an
+# azure/login step for an unrelated job while still deploying via a publish profile.
+AUTH_SIGNATURES = [
+    ("publish_profile", re.compile(r"publish-profile\s*:")),
+    ("service_principal_secret", re.compile(r"uses\s*:\s*[Aa]zure/login@[^\n]*\n(?:.*\n)*?\s*creds\s*:")),
+    ("oidc", re.compile(r"uses\s*:\s*[Aa]zure/login@")),
+    ("static_web_apps_token", re.compile(r"azure_static_web_apps_api_token\s*:")),
+]
+DEPLOY_ACTIONS = {
+    "app-service": re.compile(r"[Aa]zure/webapps-deploy@"),
+    "container-apps": re.compile(r"[Aa]zure/container-apps-deploy-action@"),
+    "static-web-apps": re.compile(r"[Aa]zure/static-web-apps-deploy@"),
+}
+SECRET_REF = re.compile(r"\$\{\{\s*secrets\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
+
+
+# A workflow can pin the runtime, name the Azure resource and choose the install command
+# entirely inside itself. Reading only repo files misses all of that and produces false
+# blockers, so these patterns cover the workflow as a configuration source too.
+WORKFLOW_ENV_BLOCK = re.compile(r"(?m)^env:[ \t]*\n((?:[ \t]+[^\n]*\n)+)")
+ENV_KV = re.compile(r"(?m)^[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*:[ \t]*[\"']?([^\"'\n#]*?)[\"']?[ \t]*$")
+RUNTIME_ENV_KEYS = {
+    "NODE_VERSION": "node", "PYTHON_VERSION": "python", "DOTNET_VERSION": "dotnet",
+    "JAVA_VERSION": "java", "GO_VERSION": "go", "RUBY_VERSION": "ruby",
+}
+VARS_REF = re.compile(r"\$\{\{\s*vars\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
+ENV_EXPR = re.compile(r"\$\{\{\s*env\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
+APP_NAME_INPUT = re.compile(r"(?m)^[ \t]*app-name:[ \t]*(.+?)[ \t]*$")
+PATHS_FILTER = re.compile(r"(?m)^[ \t]+paths(?:-ignore)?:")
+# Matches an install command whether written inline (`run: npm ci`) or on its own line
+# inside a block scalar (`run: |` followed by indented commands).
+INSTALL_RUN = re.compile(
+    r"(?m)^[ \t]*(?:run:[ \t]*)?((?:npm|yarn|pnpm) (?:ci|install)[^\n]*"
+    r"|poetry install[^\n]*|uv sync[^\n]*|pip install (?!--upgrade pip)[^\n]*"
+    r"|dotnet restore[^\n]*)")
+
+
+def _resolve_env_expr(value, env):
+    """Turn `${{ env.AZURE_WEBAPP_NAME }}` into its literal from the workflow env block."""
+    m = ENV_EXPR.search(value or "")
+    if m:
+        return env.get(m.group(1))
+    if value and "${{" in value:
+        return None  # some other expression - do not guess
+    return value or None
+
+
+def _has_rationale(lines, index):
+    """True when a comment sits directly above this step, explaining a deliberate choice."""
+    for i in range(max(0, index - 8), index):
+        if lines[i].lstrip().startswith("#"):
+            return True
+    return False
+
+
+def detect_workflow_config(root, workflow_paths):
+    """Configuration that lives inside the workflow rather than in repo files.
+
+    Without this the detector reports "no runtime pinned" for a workflow that pins it in
+    its own env: block, and misses GitHub variables entirely.
+    """
+    per_file, runtime_pins, variables = [], {}, {}
+    deploying = 0
+    deploying_without_paths = []
+
+    for rel_path in workflow_paths:
+        content = read(os.path.join(root, rel_path))
+        if not content:
+            continue
+        lines = content.splitlines()
+
+        env = {}
+        block = WORKFLOW_ENV_BLOCK.search(content)
+        if block:
+            for key, value in ENV_KV.findall(block.group(1)):
+                env[key] = value.strip()
+
+        for key, runtime in RUNTIME_ENV_KEYS.items():
+            if key in env:
+                runtime_pins.setdefault(runtime, {
+                    "value": env[key], "source": f"{rel_path} env.{key}"})
+
+        wf_vars = sorted(set(VARS_REF.findall(content)))
+        for name in wf_vars:
+            variables.setdefault(name, []).append(rel_path)
+
+        app_name = None
+        m = APP_NAME_INPUT.search(content)
+        if m:
+            app_name = _resolve_env_expr(m.group(1), env)
+
+        installs = []
+        for m in INSTALL_RUN.finditer(content):
+            line_no = content[:m.start()].count("\n")
+            installs.append({
+                "command": m.group(1).strip(),
+                # A comment above a non-default install command usually documents a
+                # deliberate workaround. Do not "correct" it - see BUILD-08.
+                "has_rationale": _has_rationale(lines, line_no),
+            })
+
+        is_deploy = bool(re.search(r"[Aa]zure/(?:webapps-deploy|container-apps-deploy-action|"
+                                   r"static-web-apps-deploy)@", content))
+        has_paths = bool(PATHS_FILTER.search(content))
+        if is_deploy:
+            deploying += 1
+            if not has_paths:
+                deploying_without_paths.append(rel_path)
+
+        per_file.append({
+            "file": rel_path,
+            "env": env,
+            "azure_app_name": app_name,
+            "github_variables": wf_vars,
+            "install_commands": installs,
+            "deploys": is_deploy,
+            "has_paths_filter": has_paths,
+        })
+
+    return {
+        "workflow_config": per_file,
+        # Runtime pinned inside a workflow still counts as pinned (BUILD-03).
+        "runtime_pins_in_workflow": runtime_pins,
+        # GitHub Actions variables, which are NOT secrets but must still be created.
+        "github_variables": {k: v for k, v in sorted(variables.items())},
+        "deploy_workflow_count": deploying,
+        "deploy_workflows_without_paths": deploying_without_paths,
+    }
+
+
+def detect_workflow_auth(root, workflow_paths):
+    """Identify how each existing workflow authenticates to Azure.
+
+    Only secret NAMES are reported - never a value. This lets the skill preserve the
+    team's existing convention instead of silently switching them to a different method.
+    """
+    per_file, methods = [], []
+    for rel_path in workflow_paths:
+        content = read(os.path.join(root, rel_path))
+        if not content:
+            continue
+
+        method = "none"
+        for name, pattern in AUTH_SIGNATURES:
+            if pattern.search(content):
+                method = name
+                break
+
+        targets = sorted(n for n, p in DEPLOY_ACTIONS.items() if p.search(content))
+        secrets = sorted(set(SECRET_REF.findall(content)))
+        profile_secrets = [s for s in secrets if "PUBLISH_PROFILE" in s.upper()]
+
+        entry = {
+            "file": rel_path,
+            "auth_method": method,
+            "deploy_targets": targets,
+            "secret_names": secrets,
+        }
+        if method == "publish_profile":
+            # The team may not use the default AZURE_WEBAPP_PUBLISH_PROFILE name.
+            entry["publish_profile_secret"] = profile_secrets[0] if profile_secrets else None
+        # Publish profiles are an App Service feature only (AZ-07).
+        if method == "publish_profile" and any(
+                t in ("container-apps", "static-web-apps") for t in targets):
+            entry["incompatible"] = (
+                "publish profile is used with a non-App-Service target - this cannot work")
+
+        per_file.append(entry)
+        if method not in ("none", "static_web_apps_token"):
+            methods.append(method)
+
+    distinct = sorted(set(methods))
+    return {
+        "workflow_auth": per_file,
+        # The convention to preserve. None when there is nothing to preserve.
+        "existing_auth_method": distinct[0] if len(distinct) == 1 else None,
+        "existing_auth_mixed": len(distinct) > 1,
+    }
+
+
 def health_hint(root):
     for path in walk(root):
         if os.path.splitext(path)[1] not in {".js", ".ts", ".py", ".cs", ".jsx", ".tsx"}:
@@ -406,6 +588,15 @@ services[].runtime_version{value,source}, .install_command, .build_command,
 ports (from listen(/EXPOSE/--port)
 env_vars (names only, from process.env.X / os.environ / GetEnvironmentVariable)
 dockerfiles, compose_files, iac_files, existing_workflows
+workflow_auth[].auth_method (oidc | service_principal_secret | publish_profile |
+            static_web_apps_token | none), .deploy_targets, .secret_names,
+            .publish_profile_secret
+existing_auth_method (the convention to preserve), existing_auth_mixed
+workflow_config[].env (workflow-level env: block), .azure_app_name,
+            .github_variables, .install_commands[].has_rationale, .has_paths_filter
+runtime_pins_in_workflow (a pin here satisfies BUILD-03)
+github_variables (${{ vars.X }} - NOT secrets, but must be created)
+deploy_workflow_count, deploy_workflows_without_paths (CI-09)
 suspected_hardcoded_secrets (file + line + rule ONLY - never the value)
 health_endpoint
 """
@@ -431,8 +622,21 @@ def main():
     scan = scan_sources(root)
     services = find_services(root)
 
+    auth = detect_workflow_auth(root, scan["existing_workflows"])
+    wfcfg = detect_workflow_config(root, scan["existing_workflows"])
+
+    # A runtime pinned in a workflow env: block is still pinned. Backfill it onto any
+    # service that has no in-repo pin, so BUILD-03 does not fire a false blocker.
+    lang_to_runtime = {"JavaScript/TypeScript": "node", "Python": "python", "C#/.NET": "dotnet"}
+    for svc in services:
+        if svc["runtime_version"]["value"]:
+            continue
+        pin = wfcfg["runtime_pins_in_workflow"].get(lang_to_runtime.get(svc["language"], ""))
+        if pin:
+            svc["runtime_version"] = dict(pin)
+
     result = {
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "root": root.replace("\\", "/"),
         "git": detect_git(root),
@@ -441,6 +645,8 @@ def main():
         "is_monorepo": len(services) > 1,
         "health_endpoint": health_hint(root),
         **scan,
+        **auth,
+        **wfcfg,
         "notes": [],
     }
 
@@ -456,6 +662,40 @@ def main():
             "These are regex matches and include false positives; confirm before reporting.")
     if not scan["existing_workflows"]:
         result["notes"].append("No existing GitHub Actions workflows.")
+    if auth["existing_auth_method"]:
+        result["notes"].append(
+            f"Existing workflows authenticate with: {auth['existing_auth_method']}. "
+            f"Preserve this method by default - ask before switching (see auth.md).")
+    if auth["existing_auth_mixed"]:
+        result["notes"].append(
+            "Existing workflows use MORE THAN ONE auth method. Ask which to standardise on; "
+            "do not switch any of them silently.")
+    for entry in auth["workflow_auth"]:
+        if entry.get("incompatible"):
+            result["notes"].append(f"{entry['file']}: {entry['incompatible']} (AZ-07 blocker).")
+
+    if wfcfg["github_variables"]:
+        result["notes"].append(
+            "GitHub Actions VARIABLES referenced (not secrets, but must exist): "
+            + ", ".join(wfcfg["github_variables"])
+            + ". List these in the report alongside the secrets.")
+    for entry in wfcfg["workflow_config"]:
+        for inst in entry["install_commands"]:
+            if inst["has_rationale"]:
+                result["notes"].append(
+                    f"{entry['file']}: install step `{inst['command']}` has an explanatory "
+                    f"comment above it. Treat it as deliberate - do NOT replace it with a "
+                    f"conventional command (BUILD-08).")
+        if entry["azure_app_name"]:
+            result["notes"].append(
+                f"{entry['file']}: deploys to Azure app `{entry['azure_app_name']}` "
+                f"(from the workflow). Reuse this name - do not ask for it.")
+    if wfcfg["deploy_workflow_count"] > 1 and wfcfg["deploy_workflows_without_paths"]:
+        result["notes"].append(
+            f"{wfcfg['deploy_workflow_count']} deploying workflows share this repo and "
+            f"{len(wfcfg['deploy_workflows_without_paths'])} have no `paths:` filter "
+            f"({', '.join(wfcfg['deploy_workflows_without_paths'])}). Every push deploys "
+            f"every service (CI-09).")
 
     print(json.dumps(result, indent=2))
     return 0
