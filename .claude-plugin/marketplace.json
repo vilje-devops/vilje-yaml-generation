@@ -1,0 +1,22 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "vilje-devops",
+  "description": "Vilje Tech internal Claude Code plugins for DevOps, CI/CD and cloud deployment tooling.",
+  "owner": {
+    "name": "Prem Kumar Ponnada",
+    "email": "prem@viljetech.com"
+  },
+  "plugins": [
+    {
+      "name": "azure-deploy-kit",
+      "description": "Analyze any application repository for Azure deployment readiness and generate application-specific GitHub Actions CI/CD workflows for Azure App Service, Container Apps and Static Web Apps. Generates YAML only - it never deploys.",
+      "author": {
+        "name": "Prem Kumar Ponnada",
+        "email": "prem@viljetech.com"
+      },
+      "category": "devops",
+      "source": "./plugins/azure-deploy-kit",
+      "homepage": "https://github.com/vilje-devops/vilje-yaml-generation/tree/main/plugins/azure-deploy-kit"
+    }
+  ]
+}

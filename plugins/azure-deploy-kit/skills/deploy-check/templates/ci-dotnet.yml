@@ -1,0 +1,54 @@
+# Template: CI for a .NET application.
+# Fill tokens per ../templates/TEMPLATES.md. Pin actions per ../references/versions.md.
+name: CI
+
+on:
+  pull_request:
+    branches: ["{{DEFAULT_BRANCH}}"]
+  push:
+    branches: ["{{DEFAULT_BRANCH}}"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: "ci-${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "{{DOTNET_VERSION}}"
+
+      - name: Restore
+        run: dotnet restore "{{PROJECT_PATH}}"
+
+      - name: Build
+        run: dotnet build "{{PROJECT_PATH}}" --configuration Release --no-restore
+
+# {{#if TESTS}}
+      - name: Test
+        run: dotnet test "{{TEST_PROJECT_PATH}}" --configuration Release --no-build --verbosity normal
+# {{/if}}
+
+# {{#if UPLOAD_ARTIFACT}}
+      - name: Publish
+        run: dotnet publish "{{PROJECT_PATH}}" --configuration Release --no-build --output ./publish
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: app-build
+          path: ./publish
+          retention-days: 7
+          if-no-files-found: error
+# {{/if}}

@@ -1,0 +1,99 @@
+# Template: build a container image and deploy it to Azure Container Apps.
+# Auth: OIDC (publish profile cannot be used for Container Apps).
+#
+# Critical: --target-port must equal the port the container listens on ({{TARGET_PORT}}).
+# A mismatch produces a healthy-looking revision that serves nothing (DOCK-02).
+name: Deploy to Azure Container Apps
+
+on:
+  push:
+    branches: ["{{DEFAULT_BRANCH}}"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: "{{CONCURRENCY_GROUP}}"
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    name: Build image and deploy revision
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: "{{ENVIRONMENT_NAME}}"
+    permissions:
+      id-token: write    # OIDC for azure/login
+      contents: read
+      packages: write    # only needed for GHCR; delete for ACR
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Azure login
+        uses: azure/login@v3
+        with:
+          client-id: "${{ secrets.AZURE_CLIENT_ID }}"
+          tenant-id: "${{ secrets.AZURE_TENANT_ID }}"
+          subscription-id: "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+
+# {{#if REGISTRY_ACR}}
+      # The deploying identity needs AcrPush on the registry, and the Container App
+      # needs pull access (managed identity with AcrPull, or admin credentials).
+      - name: Log in to Azure Container Registry
+        run: az acr login --name "{{ACR_NAME}}"
+# {{/if}}
+
+# {{#if REGISTRY_GHCR}}
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: "${{ github.actor }}"
+          password: "${{ secrets.GITHUB_TOKEN }}"
+# {{/if}}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v7
+        with:
+          context: "{{BUILD_CONTEXT}}"
+          file: "{{DOCKERFILE_PATH}}"
+          push: true
+          platforms: linux/amd64
+          tags: |
+            {{REGISTRY_SERVER}}/{{IMAGE_NAME}}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Creates a new revision. Rollback = reactivate the previous revision in the portal
+      # or with `az containerapp revision activate` (OPS-01).
+      - name: Deploy revision
+        uses: azure/container-apps-deploy-action@v2
+        with:
+          resourceGroup: "{{AZURE_RESOURCE_GROUP}}"
+          containerAppName: "{{AZURE_CONTAINER_APP_NAME}}"
+          containerAppEnvironment: "{{AZURE_CONTAINER_APP_ENV}}"
+          imageToDeploy: "{{REGISTRY_SERVER}}/{{IMAGE_NAME}}:${{ github.sha }}"
+          targetPort: "{{TARGET_PORT}}"
+          ingress: external
+
+      - name: Resolve application URL
+        id: url
+        run: |
+          fqdn=$(az containerapp show \
+            --resource-group "{{AZURE_RESOURCE_GROUP}}" \
+            --name "{{AZURE_CONTAINER_APP_NAME}}" \
+            --query "properties.configuration.ingress.fqdn" -o tsv)
+          echo "fqdn=$fqdn" >> "$GITHUB_OUTPUT"
+          echo "Deployed to https://$fqdn"
+
+      - name: Verify deployment
+        run: |
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "https://${{ steps.url.outputs.fqdn }}{{HEALTH_PATH}}" || true)
+            if [ "$code" = "200" ]; then echo "Health check passed"; exit 0; fi
+            echo "Attempt $i: HTTP $code - retrying in 15s"; sleep 15
+          done
+          echo "Health check never returned 200"; exit 1

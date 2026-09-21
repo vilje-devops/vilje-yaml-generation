@@ -1,0 +1,62 @@
+# Template: CI for a Node / TypeScript application.
+# Fill tokens per ../templates/TEMPLATES.md. Pin actions per ../references/versions.md.
+name: CI
+
+on:
+  pull_request:
+    branches: ["{{DEFAULT_BRANCH}}"]
+  push:
+    branches: ["{{DEFAULT_BRANCH}}"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: "ci-${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: "{{APP_PATH}}"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "{{NODE_VERSION}}"
+          cache: "{{PACKAGE_MANAGER}}"
+          cache-dependency-path: "{{LOCKFILE_PATH}}"
+
+      - name: Install dependencies
+        run: "{{INSTALL_COMMAND}}"
+
+# {{#if LINT}}
+      - name: Lint
+        run: "{{LINT_COMMAND}}"
+# {{/if}}
+
+# {{#if TESTS}}
+      - name: Test
+        run: "{{TEST_COMMAND}}"
+# {{/if}}
+
+      - name: Build
+        run: "{{BUILD_COMMAND}}"
+
+# {{#if UPLOAD_ARTIFACT}}
+      # Build once here, deploy this exact artifact later - never build twice (CI-04).
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: app-build
+          path: "{{APP_PATH}}/{{BUILD_OUTPUT_PATH}}"
+          retention-days: 7
+          if-no-files-found: error
+# {{/if}}

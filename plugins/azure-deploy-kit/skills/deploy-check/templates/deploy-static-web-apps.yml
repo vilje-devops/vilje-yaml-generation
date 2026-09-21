@@ -1,0 +1,61 @@
+# Template: deploy a static frontend (optionally with a managed API) to Azure Static Web Apps.
+#
+# Static Web Apps uses a deployment token, not OIDC. The token is per-site; get it from
+# the portal (Manage deployment token) and store it as AZURE_STATIC_WEB_APPS_API_TOKEN.
+#
+# Warning: every VITE_* / NEXT_PUBLIC_* variable is baked into the bundle at build time
+# and is publicly readable. None of them may hold a secret (ENV-05).
+name: Deploy to Azure Static Web Apps
+
+on:
+  push:
+    branches: ["{{DEFAULT_BRANCH}}"]
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches: ["{{DEFAULT_BRANCH}}"]
+
+permissions:
+  contents: read
+  pull-requests: write   # to post the preview environment URL on the PR
+
+concurrency:
+  group: "{{CONCURRENCY_GROUP}}"
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    name: Build and deploy
+    # Skip on the PR-closed event; that is handled by the cleanup job below.
+    if: github.event_name != 'pull_request' || github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Deploy
+        uses: azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: "${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}"
+          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          action: upload
+          # Paths are relative to the repository root.
+          app_location: "{{APP_PATH}}"
+          output_location: "{{BUILD_OUTPUT_PATH}}"
+# {{#if MANAGED_API}}
+          api_location: "{{API_PATH}}"
+# {{/if}}
+
+  close-pull-request:
+    name: Close preview environment
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Close preview
+        uses: azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: "${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}"
+          action: close

@@ -1,0 +1,20 @@
+{
+  "name": "azure-deploy-kit",
+  "version": "0.1.0",
+  "description": "Analyzes an application codebase for Azure deployment readiness and generates application-specific GitHub Actions CI/CD YAML. Generates and validates files only - it never runs a deployment.",
+  "author": {
+    "name": "Prem Kumar Ponnada",
+    "email": "prem@viljetech.com"
+  },
+  "keywords": [
+    "azure",
+    "github-actions",
+    "ci-cd",
+    "deployment",
+    "yaml",
+    "devops"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/vilje-devops/vilje-yaml-generation/tree/main/plugins/azure-deploy-kit",
+  "repository": "https://github.com/vilje-devops/vilje-yaml-generation"
+}

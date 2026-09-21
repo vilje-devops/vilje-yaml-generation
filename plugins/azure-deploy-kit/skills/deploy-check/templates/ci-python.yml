@@ -1,0 +1,61 @@
+# Template: CI for a Python application.
+# Fill tokens per ../templates/TEMPLATES.md. Pin actions per ../references/versions.md.
+name: CI
+
+on:
+  pull_request:
+    branches: ["{{DEFAULT_BRANCH}}"]
+  push:
+    branches: ["{{DEFAULT_BRANCH}}"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: "ci-${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: "{{APP_PATH}}"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # Quote the version - unquoted 3.10 is the float 3.1 in YAML.
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "{{PYTHON_VERSION}}"
+          cache: "pip"
+          cache-dependency-path: "{{LOCKFILE_PATH}}"
+
+      - name: Install dependencies
+        run: "{{INSTALL_COMMAND}}"
+
+# {{#if LINT}}
+      - name: Lint
+        run: "{{LINT_COMMAND}}"
+# {{/if}}
+
+# {{#if TESTS}}
+      # Services this needs (database, cache) must be declared as `services:` on this job,
+      # or the tests will fail in CI while passing locally.
+      - name: Test
+        run: "{{TEST_COMMAND}}"
+# {{/if}}
+
+# {{#if UPLOAD_ARTIFACT}}
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: app-build
+          path: "{{APP_PATH}}/{{BUILD_OUTPUT_PATH}}"
+          retention-days: 7
+          if-no-files-found: error
+# {{/if}}

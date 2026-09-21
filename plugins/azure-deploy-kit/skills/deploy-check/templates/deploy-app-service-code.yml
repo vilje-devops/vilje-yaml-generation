@@ -1,0 +1,117 @@
+# Template: deploy a non-containerized app to Azure App Service.
+# Auth: OIDC (see ../references/auth.md for the other two methods).
+#
+# Prerequisites the developer must complete first - list these in DEPLOYMENT.md:
+#   - App Service exists with the correct runtime stack
+#   - Federated credential subject matches this workflow exactly
+#   - Secrets AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_SUBSCRIPTION_ID created
+name: Deploy to Azure App Service
+
+on:
+  push:
+    branches: ["{{DEFAULT_BRANCH}}"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Two pushes must not deploy to the same slot at once (CI-07).
+concurrency:
+  group: "{{CONCURRENCY_GROUP}}"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: "{{APP_PATH}}"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up runtime
+        uses: actions/setup-node@v7
+        with:
+          node-version: "{{NODE_VERSION}}"
+          cache: "{{PACKAGE_MANAGER}}"
+          cache-dependency-path: "{{LOCKFILE_PATH}}"
+
+      - name: Install dependencies
+        run: "{{INSTALL_COMMAND}}"
+
+# {{#if TESTS}}
+      - name: Test
+        run: "{{TEST_COMMAND}}"
+# {{/if}}
+
+      - name: Build
+        run: "{{BUILD_COMMAND}}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: app-build
+          path: "{{APP_PATH}}/{{BUILD_OUTPUT_PATH}}"
+          if-no-files-found: error
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Gates the job behind this GitHub Environment's reviewers and secrets.
+    # The OIDC subject must then be the `environment:` form, not `ref:` - see auth.md.
+    environment:
+      name: "{{ENVIRONMENT_NAME}}"
+      url: "${{ steps.deploy.outputs.webapp-url }}"
+    permissions:
+      id-token: write   # required for OIDC; without it azure/login fails
+      contents: read
+    steps:
+      # Deploy the artifact that was tested - never rebuild here (CI-04).
+      - name: Download artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: app-build
+          path: ./app-build
+
+      - name: Azure login
+        uses: azure/login@v3
+        with:
+          client-id: "${{ secrets.AZURE_CLIENT_ID }}"
+          tenant-id: "${{ secrets.AZURE_TENANT_ID }}"
+          subscription-id: "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+
+      - name: Deploy to App Service
+        id: deploy
+        uses: azure/webapps-deploy@v2
+        with:
+          app-name: "{{AZURE_APP_NAME}}"
+# {{#if SLOT}}
+          slot-name: "{{AZURE_SLOT_NAME}}"
+# {{/if}}
+          package: ./app-build
+
+# {{#if SLOT}}
+      # Zero-downtime release and a one-command rollback (swap back).
+      - name: Swap staging slot into production
+        run: |
+          az webapp deployment slot swap \
+            --resource-group "{{AZURE_RESOURCE_GROUP}}" \
+            --name "{{AZURE_APP_NAME}}" \
+            --slot "{{AZURE_SLOT_NAME}}" \
+            --target-slot production
+# {{/if}}
+
+      # Without this the workflow reports green on a broken deploy (OPS-02).
+      - name: Verify deployment
+        run: |
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "https://{{AZURE_APP_NAME}}.azurewebsites.net{{HEALTH_PATH}}" || true)
+            if [ "$code" = "200" ]; then echo "Health check passed"; exit 0; fi
+            echo "Attempt $i: HTTP $code - retrying in 15s"; sleep 15
+          done
+          echo "Health check never returned 200"; exit 1
