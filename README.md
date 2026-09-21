@@ -1,6 +1,3 @@
-# Vilje DevOps — Claude Code plugin marketplace
-
-Internal Claude Code plugins for Vilje Tech. Currently one plugin:
 
 | Plugin | Command | Purpose |
 |---|---|---|
