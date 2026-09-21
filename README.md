@@ -13,7 +13,7 @@ Internal Claude Code plugins for Vilje Tech. Currently one plugin:
 Run these once per developer, from anywhere:
 
 ```bash
-claude marketplace add vilje-devops https://github.com/vilje-devops/vilje-yaml-generation
+claude plugin marketplace add https://github.com/vilje-devops/vilje-yaml-generation
 claude plugin install azure-deploy-kit@vilje-devops
 ```
 
@@ -104,9 +104,8 @@ well-formed — nothing more.
 .claude-plugin/marketplace.json          marketplace metadata (this repo)
 plugins/azure-deploy-kit/
   .claude-plugin/plugin.json             plugin manifest
-  commands/deploy-check.md               the /deploy-check entry point
   skills/deploy-check/
-    SKILL.md                             orchestrator: 6 phases, hard rules
+    SKILL.md                             the /deploy-check command: 6 phases, hard rules
     references/
       checks.md                          the readiness rubric (IDs, severity, fix)
       questions.md                       what to ask, and what never to ask

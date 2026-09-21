@@ -47,7 +47,13 @@ These are not preferences. Breaking one makes the output dangerous.
 
 ## Modes
 
-Read the argument the user passed. Default per the command file.
+Read the argument the user passed. If they gave no mode:
+
+- No `.github/workflows/` directory exists yet → default to `analyze`, then offer `generate`.
+- Workflows already exist → default to `validate`, then offer `generate`.
+
+Never skip Phase 1-2 before generating, and never write into `.github/workflows/` without
+showing the file plan first.
 
 | Mode | Does | Writes files |
 |---|---|---|
