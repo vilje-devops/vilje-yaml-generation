@@ -289,7 +289,12 @@ def test_report_template():
     check("template states nothing was deployed",
           "Nothing has been deployed" in text)
     check("template warns against secret values",
-          "never shown in this document" in text)
+          "Secret values never appear in this document" in text and
+          "never be pasted into chat" in text)
+    check("template sets a length budget so reports stay short",
+          "Aim for 120 lines" in text)
+    check("template carries its own filling rules (one file to read)",
+          "Never invent a value" in text and "Secret NAMES only" in text)
     check("template has a pre-deployment checklist",
           "- [ ]" in text)
 
@@ -465,6 +470,26 @@ def test_no_double_trigger():
     check("one-vs-two-workflows guidance documented", "### One workflow or two?" in targets)
 
 
+def test_no_config_file():
+    """`.deploy-check.yml` was removed: the workflow is the single source of truth."""
+    print("\n[12] no separate config file")
+    offenders = []
+    for base, _, files in os.walk(SKILL):
+        for fn in files:
+            path = os.path.join(base, fn)
+            text = open(path, encoding="utf-8", errors="ignore").read()
+            if ".deploy-check.yml" in text and "Earlier versions wrote" not in text:
+                offenders.append(os.path.relpath(path, SKILL))
+    check("no instruction writes .deploy-check.yml", not offenders, f"found in {offenders}")
+
+    q = open(os.path.join(SKILL, "references", "questions.md"), encoding="utf-8").read()
+    check("questions.md says not to write a config file",
+          "## Do not write a config file" in q)
+    s = open(os.path.join(SKILL, "SKILL.md"), encoding="utf-8").read()
+    check("SKILL.md recovers context from the workflow instead",
+          "recovers the target, auth method" in s)
+
+
 def test_pinned_versions():
     """Bugs 1 and 6: version pins and the startup-command limitation."""
     print("\n[9] versions and auth documentation")
@@ -507,6 +532,7 @@ if __name__ == "__main__":
     test_pinned_versions()
     test_house_auth_default()
     test_no_double_trigger()
+    test_no_config_file()
 
     failed = [r for r in results if not r[0]]
     print("\n" + "=" * 62)

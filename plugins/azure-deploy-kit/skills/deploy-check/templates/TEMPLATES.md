@@ -79,7 +79,7 @@ choice; the templates branch on the three `{{#if AUTH_*}}` blocks.
 
 | Token / flag | Meaning |
 |---|---|
-| `{{AUTH_METHOD}}` | `oidc` / `service_principal_secret` / `publish_profile` - recorded in `.deploy-check.yml` |
+| `{{AUTH_METHOD}}` | `oidc` / `service_principal_secret` / `publish_profile` |
 | `{{#if AUTH_OIDC}}` | keep for OIDC federated credentials (default) |
 | `{{#if AUTH_SP_SECRET}}` | keep for a service principal secret |
 | `{{#if AUTH_PUBLISH_PROFILE}}` | keep for a publish profile - **App Service only** |

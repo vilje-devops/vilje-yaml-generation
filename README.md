@@ -137,8 +137,9 @@ claude plugin marketplace remove vilje-devops
   how the deployment works, what you must configure, how to run it, and how to tell whether
   it worked. Includes a pre-deployment checklist and troubleshooting for *your* app.
   Written to be readable by developers, team leads and non-technical readers alike
-- `.deploy-check.yml` — your confirmed answers, so re-runs do not re-interrogate you
-  (contains choices and names only, never secrets)
+No config file is written. On a re-run the detector reads the workflow it generated and
+recovers the target, auth method, secret names, trigger branch and app name from there —
+one source of truth, nothing to drift.
 
 ### What it deliberately does **not** do
 

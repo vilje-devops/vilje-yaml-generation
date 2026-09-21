@@ -137,8 +137,10 @@ by the **House auth default** table in `questions.md` and put that one first, ma
 `(Recommended)`. Today that is publish profile for App Service, OIDC for Container Apps.
 Never silently drop the alternatives.
 
-Write the confirmed answers to `.deploy-check.yml` at the repo root so later runs do not
-re-interrogate. If that file already exists, read it first and ask only about the gaps.
+Do not write a config file. On a later run the detector reads the workflow you generated
+and recovers the target, auth method, secret names, trigger branch, Azure app name and
+runtime pin from it — so the answers come back from the workflow itself, which is the real
+source of truth and cannot drift out of step with it.
 
 ## Phase 4 — Generate
 
@@ -193,9 +195,9 @@ Report each validation as passed, failed, or **not performed** with the reason. 
 Write `DEPLOYMENT.md` at the repo root by **filling `templates/DEPLOYMENT.template.md`** —
 the same rule as the workflow templates. Do not author it freehand.
 
-Read `references/report-format.md` for the filling rules, and
-`examples/DEPLOYMENT.example.md` for a complete worked example of the expected depth and
-tone.
+**Read that template and nothing else.** It carries its own filling rules in a header
+comment. `examples/DEPLOYMENT.example.md` exists but is optional — open it only if you are
+unsure of the expected depth, not on every run.
 
 The report answers five questions, as its five main sections:
 
@@ -215,6 +217,10 @@ click or what to run.
 Fill every value from the detector output, the user's confirmed answers, the files you
 generated, and the validator results. **Never invent one.** If a value is genuinely not
 available, write `{{NOT PROVIDED}}` and add a matching item to the section 3 checklist.
+
+**Keep it short — aim for about 120 lines.** Cut any row that does not change what the
+reader does. A long report is not a better report, and it costs the reader attention and
+you tokens.
 
 Then validate it:
 
@@ -237,7 +243,7 @@ Load these only when the phase calls for them.
 | `references/azure-targets.md` | Phase 4 — target and template selection |
 | `references/versions.md` | Phase 4 — pinned action versions |
 | `references/auth.md` | Phase 3, 4 and 6 — the three auth methods and the compatibility matrix |
-| `references/report-format.md` | Phase 2 and 6 — report rules, evidence labels, tone |
-| `templates/DEPLOYMENT.template.md` | Phase 6 — the report skeleton to fill |
-| `examples/DEPLOYMENT.example.md` | Phase 6 — a complete worked example |
+| `references/report-format.md` | Phase 2 — evidence labels, chat summary, tone |
+| `templates/DEPLOYMENT.template.md` | Phase 6 — the report skeleton, with its rules inside |
+| `examples/DEPLOYMENT.example.md` | optional — only if unsure of the expected depth |
 | `templates/TEMPLATES.md` | Phase 4 — token conventions |
