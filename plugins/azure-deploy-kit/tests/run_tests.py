@@ -428,6 +428,43 @@ def test_house_auth_default():
     check("SKILL.md Phase 3 points at the house default", "House auth default" in s)
 
 
+def test_no_double_trigger():
+    """CI and deploy must not fire on the same event, or every merge builds twice."""
+    print("\n[11] CI / deploy trigger overlap (CI-10)")
+    try:
+        import yaml
+    except ImportError:
+        check("PyYAML available", False, "pip install pyyaml")
+        return
+
+    def triggers(fname):
+        d = yaml.safe_load(open(os.path.join(TEMPLATES, fname), encoding="utf-8"))
+        on = d.get(True, d.get("on")) or {}
+        return set(on) if isinstance(on, dict) else set()
+
+    for ci in ("ci-node.yml", "ci-python.yml", "ci-dotnet.yml"):
+        t = triggers(ci)
+        check(f"{ci}: runs on pull_request", "pull_request" in t, f"got {sorted(t)}")
+        check(f"{ci}: does NOT run on push", "push" not in t,
+              f"got {sorted(t)} - would build the same commit twice alongside deploy")
+
+    for dep in ("deploy-app-service-code.yml", "deploy-app-service-container.yml",
+                "deploy-container-apps.yml"):
+        t = triggers(dep)
+        check(f"{dep}: runs on push", "push" in t, f"got {sorted(t)}")
+
+    # No CI template may share an event with a deploy template.
+    for ci in ("ci-node.yml", "ci-python.yml", "ci-dotnet.yml"):
+        for dep in ("deploy-app-service-code.yml", "deploy-container-apps.yml"):
+            overlap = triggers(ci) & triggers(dep)
+            check(f"{ci} vs {dep}: no shared trigger", not overlap, f"shared: {sorted(overlap)}")
+
+    checks_md = open(os.path.join(SKILL, "references", "checks.md"), encoding="utf-8").read()
+    check("CI-10 in the rubric", "CI-10" in checks_md)
+    targets = open(os.path.join(SKILL, "references", "azure-targets.md"), encoding="utf-8").read()
+    check("one-vs-two-workflows guidance documented", "### One workflow or two?" in targets)
+
+
 def test_pinned_versions():
     """Bugs 1 and 6: version pins and the startup-command limitation."""
     print("\n[9] versions and auth documentation")
@@ -469,6 +506,7 @@ if __name__ == "__main__":
     test_real_world_regressions()
     test_pinned_versions()
     test_house_auth_default()
+    test_no_double_trigger()
 
     failed = [r for r in results if not r[0]]
     print("\n" + "=" * 62)

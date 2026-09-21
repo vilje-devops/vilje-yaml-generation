@@ -2,10 +2,10 @@
 # Fill tokens per ../templates/TEMPLATES.md. Pin actions per ../references/versions.md.
 name: CI
 
+# Pull requests only. The deploy workflow rebuilds on merge, so triggering this on
+# push as well would build the same commit twice (CI-10).
 on:
   pull_request:
-    branches: ["{{DEFAULT_BRANCH}}"]
-  push:
     branches: ["{{DEFAULT_BRANCH}}"]
 
 permissions:

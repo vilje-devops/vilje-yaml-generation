@@ -103,6 +103,7 @@ and say in the report that you skipped it and why.
 | CI-06 | warning | Production deploy is gated by a GitHub Environment with required reviewers | |
 | CI-07 | warning | `concurrency:` set so two pushes cannot deploy simultaneously | Concurrent deploys to one slot produce an indeterminate result. |
 | CI-08 | info | `timeout-minutes` set on jobs | |
+| CI-10 | warning | CI and deploy workflows do not both trigger on the same event | If `ci.yml` and `deploy.yml` both run on push to the release branch, every merge builds twice. Keep CI on `pull_request` and deploy on `push`, or have deploy `needs:` the CI job. |
 | CI-09 | warning | When a repo holds more than one deploying workflow, each has an `on.push.paths:` filter | Without it every push deploys every service — a CSS change redeploys the backend. The detector reports `deploy_workflow_count` and `deploy_workflows_without_paths`. |
 
 ## AZ — Azure target fit

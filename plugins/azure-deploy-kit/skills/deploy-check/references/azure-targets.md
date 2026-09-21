@@ -40,9 +40,23 @@ CI template by detected stack:
 | .NET | `ci-dotnet.yml` |
 | Anything else | Build from `ci-node.yml` as a shape reference, adapt the steps, and mark the result `Assumed` in the report |
 
-A repo needing only deployment gets only the deploy workflow. Do not emit a CI workflow
-that duplicates steps the deploy workflow already runs — instead have the deploy workflow
-`needs:` the CI job, or keep CI for pull requests and deploy for the release branch.
+### One workflow or two?
+
+GitHub runs **every** file in `.github/workflows/`; it does not pick one. Each file's `on:`
+block decides whether that file runs for a given event. So two files means two independent
+triggers, and overlapping triggers mean duplicated work.
+
+| Situation | Emit |
+|---|---|
+| Team wants checks on pull requests **and** deploy on merge | `ci.yml` (`on: pull_request`) **plus** `deploy.yml` (`on: push`) |
+| Team just wants "push and it deploys" | **`deploy.yml` only** - the deploy workflow already builds and tests |
+| Repo already has a single combined workflow | Keep that shape. Do not split it into two. |
+
+Ask if it is not obvious. Defaulting to two files when the team wanted one adds a workflow
+nobody asked for.
+
+Never let both trigger on the same event (CI-10). The `ci-*.yml` templates are
+`pull_request`-only for exactly this reason - the deploy workflow rebuilds on merge.
 
 ## Auth compatibility by target
 
